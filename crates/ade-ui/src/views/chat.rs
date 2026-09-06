@@ -1,0 +1,117 @@
+use ade_core::{Role, UnifiedMessage};
+use gpui::*;
+use gpui_component::{label::Label, text::TextView};
+
+use super::theme::{muted_color, ok_color, soft_border, truncate, v_center};
+use crate::app::AdeApp;
+
+impl AdeApp {
+    /// M3d: agent-agnostic chat. Reads only `transcripts`/`costs` —
+    /// no opencode wire types.
+    pub(crate) fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(sid) = self.store.active_session.clone() else {
+            return v_center("Create a session in the sidebar to begin.");
+        };
+        let msgs: Vec<UnifiedMessage> = self.store.transcript_for_session(&sid).to_vec();
+        if msgs.is_empty() {
+            return v_center("No unified messages yet — say something below.");
+        }
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(cost) = self
+            .store
+            .session_task
+            .get(&sid)
+            .and_then(|t| self.store.costs.get(t))
+        {
+            rows.push(
+                Label::new(format!("{} messages · ${:.4}", msgs.len(), cost.cost))
+                    .text_size(px(11.))
+                    .text_color(muted_color())
+                    .into_any_element(),
+            );
+        }
+        for m in &msgs {
+            if m.text.trim().is_empty() {
+                continue;
+            }
+            rows.push(self.unified_row(m, window, cx));
+        }
+        if self.store.is_busy() {
+            rows.push(
+                Label::new("▌ agent working…")
+                    .text_color(ok_color())
+                    .into_any_element(),
+            );
+        }
+        div()
+            .id("chat-v2")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px_3()
+            .py_2()
+            .children(rows)
+            .into_any_element()
+    }
+
+    pub(crate) fn unified_row(
+        &self,
+        m: &UnifiedMessage,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match m.role {
+            Role::User => div()
+                .flex()
+                .justify_end()
+                .pb_3()
+                .pt_1()
+                .child(
+                    div()
+                        .max_w(px(640.))
+                        .rounded_md()
+                        .px_3()
+                        .py_2()
+                        .bg(rgb(0x242838))
+                        .child(m.text.clone()),
+                )
+                .into_any_element(),
+            Role::Agent => div()
+                .flex()
+                .justify_start()
+                .pb_2()
+                .child(div().max_w(px(640.)).child(TextView::markdown(
+                    SharedString::from(format!("chat-{}", m.id)),
+                    m.text.clone(),
+                    window,
+                    cx,
+                )))
+                .into_any_element(),
+            Role::Tool => {
+                let title = m
+                    .tool
+                    .as_ref()
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| "tool".to_string());
+                div()
+                    .my_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(soft_border())
+                    .px_2()
+                    .py_1()
+                    .child(
+                        Label::new(format!("🔧 {title}"))
+                            .text_size(px(11.))
+                            .text_color(ok_color()),
+                    )
+                    .child(
+                        Label::new(truncate(&m.text, 500))
+                            .text_size(px(11.))
+                            .text_color(muted_color()),
+                    )
+                    .into_any_element()
+            }
+        }
+    }
+}

@@ -1,0 +1,8 @@
+pub mod chat;
+pub mod composer;
+pub mod diff;
+pub mod permission;
+pub mod right_panel;
+pub mod sidebar;
+pub mod theme;
+pub mod top_bar;

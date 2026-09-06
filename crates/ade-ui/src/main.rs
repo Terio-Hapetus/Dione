@@ -1,4 +1,5 @@
 mod app;
+mod views;
 
 use gpui::{
     AnyView, AppContext as _, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
