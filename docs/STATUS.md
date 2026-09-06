@@ -2,13 +2,15 @@
 
 ## Current milestone
 
-M3 — Agent-agnostic nền. M3a DONE. Next: M3b `agent.rs`.
+M3 — Agent-agnostic nền. M3a+M3b DONE. Next: M3c `git_diff`.
 
 ## Last commit (đã verify)
 
 - `47cba78` feat(m3a): `transcript.rs` (TaskId UUID + UnifiedMessage/Cost/
   entry_to_unified + Store dual-write + mirror test) — check/clippy/fmt
   xanh, 30/30 unit (26 cũ + 4 mới), workspace check pass
+- `4dfdeb0` feat(m3b): `agent.rs` (AgentBackend + OpencodeAdapter/collect_new/
+  apply_agent_event + Mock, 5 tests) — 35/35 unit, clippy/fmt xanh
 - `bed2d72` feat(m2f): Tier A live test (`tests/live_tier_a.rs`, 196 dòng)
   — serve thật + 2 worktrees + sessions + diff fetch + merge winner +
   remove, 2 passed in ~9s, không tốn prompt
@@ -21,8 +23,8 @@ M3 — Agent-agnostic nền. M3a DONE. Next: M3b `agent.rs`.
 
 ## Next up
 
-1. M3b `agent.rs`: `AgentBackend` trait + `OpencodeAdapter` + Mock test
-   (theo `ARCHITECTURE-v2.md`, <250 dòng).
+1. M3c `git_diff` qua git (song song + fallback `/session/diff`) +
+   test worktree tạm.
 2. Tier B live prompt: opt-in `ADE_LIVE_PROMPT=1 cargo test -p ade-core
    --features integration-tests tier_b` — tốn quota, chạy tay khi cần.
 
