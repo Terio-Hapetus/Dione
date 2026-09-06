@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ade_core::state::MessageEntry;
 use ade_core::{Command, ConnState, PermissionResponse, RuntimeHandle, Store, WorktreeStatus};
-use ade_core::{DiffNote, parse_patch_lines};
+use ade_core::{DiffNote, Role, UnifiedMessage, parse_patch_lines};
 use gpui::*;
 use gpui_component::{
     ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
@@ -48,6 +48,8 @@ pub struct AdeApp {
     model_ix: Option<usize>,
     diff_notes: Vec<DiffNote>,
     annotate_target: Option<(String, String, u32)>,
+    /// M3d: v2 chat (reads `transcripts`) side by side with the legacy timeline.
+    chat_v2: bool,
 }
 
 impl AdeApp {
@@ -97,6 +99,7 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
+            chat_v2: false,
         }
     }
 
@@ -202,7 +205,11 @@ impl Render for AdeApp {
                             .flex_col()
                             .overflow_hidden()
                             .child(self.render_error_strip())
-                            .child(self.render_timeline(window, cx))
+                            .child(if self.chat_v2 {
+                                self.render_chat(window, cx)
+                            } else {
+                                self.render_timeline(window, cx).into_any_element()
+                            })
                             .child(self.render_composer(cx)),
                     )
                     .child(self.render_right_panel(cx)),
@@ -266,6 +273,15 @@ impl AdeApp {
                     .on_click(next),
             )
             .child(div().flex_1())
+            .child(
+                Button::new("chat-toggle")
+                    .label(if self.chat_v2 { "chat v2" } else { "timeline" })
+                    .xsmall()
+                    .compact()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, _| {
+                        this.chat_v2 = !this.chat_v2;
+                    })),
+            )
             .child(
                 Label::new(format!(
                     "ctx≈{:.1}k tok · ${:.4}",
@@ -593,6 +609,115 @@ impl AdeApp {
             .py_2()
             .children(rows)
             .into_any_element()
+    }
+
+    /// M3d: agent-agnostic chat. Reads only `transcripts`/`costs` —
+    /// no opencode wire types. Legacy timeline stays until parity.
+    fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(sid) = self.store.active_session.clone() else {
+            return v_center("Create a session in the sidebar to begin.");
+        };
+        let msgs: Vec<UnifiedMessage> = self.store.transcript_for_session(&sid).to_vec();
+        if msgs.is_empty() {
+            return v_center("No unified messages yet — say something below.");
+        }
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if let Some(cost) = self
+            .store
+            .session_task
+            .get(&sid)
+            .and_then(|t| self.store.costs.get(t))
+        {
+            rows.push(
+                Label::new(format!("{} messages · ${:.4}", msgs.len(), cost.cost))
+                    .text_size(px(11.))
+                    .text_color(muted_color())
+                    .into_any_element(),
+            );
+        }
+        for m in &msgs {
+            if m.text.trim().is_empty() {
+                continue;
+            }
+            rows.push(self.unified_row(m, window, cx));
+        }
+        if self.store.is_busy() {
+            rows.push(
+                Label::new("▌ agent working…")
+                    .text_color(ok_color())
+                    .into_any_element(),
+            );
+        }
+        div()
+            .id("chat-v2")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px_3()
+            .py_2()
+            .children(rows)
+            .into_any_element()
+    }
+
+    fn unified_row(
+        &self,
+        m: &UnifiedMessage,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        match m.role {
+            Role::User => div()
+                .flex()
+                .justify_end()
+                .pb_3()
+                .pt_1()
+                .child(
+                    div()
+                        .max_w(px(640.))
+                        .rounded_md()
+                        .px_3()
+                        .py_2()
+                        .bg(rgb(0x242838))
+                        .child(m.text.clone()),
+                )
+                .into_any_element(),
+            Role::Agent => div()
+                .flex()
+                .justify_start()
+                .pb_2()
+                .child(div().max_w(px(640.)).child(TextView::markdown(
+                    SharedString::from(format!("chat-{}", m.id)),
+                    m.text.clone(),
+                    window,
+                    cx,
+                )))
+                .into_any_element(),
+            Role::Tool => {
+                let title = m
+                    .tool
+                    .as_ref()
+                    .map(|t| t.name.clone())
+                    .unwrap_or_else(|| "tool".to_string());
+                div()
+                    .my_1()
+                    .rounded_sm()
+                    .border_1()
+                    .border_color(soft_border())
+                    .px_2()
+                    .py_1()
+                    .child(
+                        Label::new(format!("🔧 {title}"))
+                            .text_size(px(11.))
+                            .text_color(ok_color()),
+                    )
+                    .child(
+                        Label::new(truncate(&m.text, 500))
+                            .text_size(px(11.))
+                            .text_color(muted_color()),
+                    )
+                    .into_any_element()
+            }
+        }
     }
 
     fn part_row(
