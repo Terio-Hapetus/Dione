@@ -1,11 +1,11 @@
 //! Compiles the visible "context window" view-model from the mirrored state.
 //!
-//! Reconstructs, in order, what the model is likely seeing for the active
-//! session, with per-section token estimates (chars/4 heuristic) anchored by
-//! real usage numbers from assistant messages (`StepFinishPartTokens`).
+//! M3d: reads the agent-agnostic `transcripts`/`costs` — no opencode wire
+//! types. Token estimates use the chars/4 heuristic, anchored by the real
+//! accumulated cost totals.
 
 use crate::state::Store;
-use opencode_codes::protocol_generated::types::{Message, Part};
+use crate::transcript::Role;
 
 #[derive(Debug, Clone)]
 pub struct ContextSection {
@@ -40,138 +40,50 @@ pub fn est_tokens(text: &str) -> usize {
 }
 
 pub fn compile(store: &Store) -> ContextView {
-    let Some(messages) = store.active_messages() else {
-        return ContextView::default();
-    };
-
     let mut view = ContextView::default();
-
-    // opencode injects its own system prompt; it is not exposed over the wire,
-    // so surface it as a fixed-cost block.
     view.sections.push(ContextSection {
         label: "system prompt".into(),
         kind: SectionKind::System,
-        detail: "injected by opencode (not exposed over the wire)".into(),
+        detail: "injected by the agent (not exposed to ADE)".into(),
         est_tokens: 2_000,
     });
 
-    for m in messages {
-        match &m.info {
-            Message::User(u) => {
-                let text = m
-                    .parts
-                    .iter()
-                    .filter_map(|p| match p {
-                        Part::Text(t) => Some(t.text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                view.sections.push(ContextSection {
-                    label: format!("user · {}", u.model.model_id),
-                    kind: SectionKind::User,
-                    detail: truncate(&text, 400),
-                    est_tokens: est_tokens(&text),
-                });
-            }
-            Message::Assistant(a) => {
-                view.actual_input_tokens = Some(a.tokens.input);
-                view.actual_cache_read = Some(a.tokens.cache.read);
-                view.actual_output_tokens = Some(a.tokens.output);
-                view.actual_total = a.tokens.total.or(Some(
-                    a.tokens.input + a.tokens.cache.read + a.tokens.output + a.tokens.reasoning,
-                ));
-
-                for part in &m.parts {
-                    view.sections.push(part_section(part));
-                }
-            }
+    let Some(sid) = store.active_session.as_deref() else {
+        view.est_total_tokens = view.sections.iter().map(|s| s.est_tokens).sum();
+        return view;
+    };
+    for m in store.transcript_for_session(sid) {
+        if m.text.trim().is_empty() {
+            continue;
         }
+        let (label, kind) = match m.role {
+            Role::User => ("user".to_string(), SectionKind::User),
+            Role::Agent => ("assistant".into(), SectionKind::Assistant),
+            Role::Tool => (
+                m.tool
+                    .as_ref()
+                    .map(|t| format!("tool:{}", t.name))
+                    .unwrap_or_else(|| "tool".into()),
+                SectionKind::ToolCall,
+            ),
+        };
+        view.sections.push(ContextSection {
+            label,
+            kind,
+            detail: truncate(&m.text, 400),
+            est_tokens: est_tokens(&m.text),
+        });
+    }
+
+    if let Some(cost) = store.session_task.get(sid).and_then(|t| store.costs.get(t)) {
+        view.actual_input_tokens = Some(cost.input);
+        view.actual_cache_read = Some(cost.cache);
+        view.actual_output_tokens = Some(cost.output);
+        view.actual_total = Some(cost.input + cost.cache + cost.output);
     }
 
     view.est_total_tokens = view.sections.iter().map(|s| s.est_tokens).sum();
     view
-}
-
-fn part_section(part: &Part) -> ContextSection {
-    match part {
-        Part::Text(t) => ContextSection {
-            label: "assistant text".into(),
-            kind: SectionKind::Assistant,
-            detail: truncate(&t.text, 400),
-            est_tokens: est_tokens(&t.text),
-        },
-        Part::Reasoning(r) => ContextSection {
-            label: "reasoning".into(),
-            kind: SectionKind::Reasoning,
-            detail: truncate(&r.text, 400),
-            est_tokens: est_tokens(&r.text),
-        },
-        Part::Tool(t) => {
-            use opencode_codes::protocol_generated::types::ToolState as TS;
-            let (status, input, output) = match &t.state {
-                TS::Pending(s) => ("pending", &s.input, String::new()),
-                TS::Running(s) => ("running", &s.input, String::new()),
-                TS::Completed(s) => ("completed", &s.input, s.output.clone()),
-                TS::Error(s) => ("error", &s.input, s.error.clone()),
-            };
-            let mut body = serde_json::to_string(input).unwrap_or_default();
-            if !output.is_empty() {
-                body.push_str("\n→ ");
-                body.push_str(output.trim());
-            }
-            ContextSection {
-                label: format!("tool:{} [{status}]", t.tool),
-                kind: SectionKind::ToolCall,
-                detail: truncate(&body, 500),
-                est_tokens: est_tokens(&body),
-            }
-        }
-        Part::StepStart(_) => ContextSection {
-            label: "step-start".into(),
-            kind: SectionKind::Other,
-            detail: String::new(),
-            est_tokens: 4,
-        },
-        Part::StepFinish(s) => ContextSection {
-            label: format!(
-                "step-finish ({:.0} in / {:.0} out tok)",
-                s.tokens.input, s.tokens.output
-            ),
-            kind: SectionKind::Other,
-            detail: format!("cost ${:.4}", s.cost),
-            est_tokens: 8,
-        },
-        Part::File(f) => ContextSection {
-            label: "file attachment".into(),
-            kind: SectionKind::Other,
-            detail: f.filename.clone().unwrap_or_else(|| f.url.clone()),
-            est_tokens: 64,
-        },
-        Part::Patch(p) => ContextSection {
-            label: "patch".into(),
-            kind: SectionKind::Other,
-            detail: p.files.join(", "),
-            est_tokens: p.files.iter().map(|f| est_tokens(f)).sum::<usize>() + 16,
-        },
-        other => ContextSection {
-            label: other_part_kind(other).to_string(),
-            kind: SectionKind::Other,
-            detail: String::new(),
-            est_tokens: 8,
-        },
-    }
-}
-
-fn other_part_kind(p: &Part) -> &'static str {
-    match p {
-        Part::Subtask(_) => "subtask",
-        Part::Snapshot(_) => "snapshot",
-        Part::Agent(_) => "agent",
-        Part::Retry(_) => "retry",
-        Part::Compaction(_) => "compaction",
-        _ => "part",
-    }
 }
 
 fn truncate(s: &str, max_chars: usize) -> String {
