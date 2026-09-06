@@ -225,6 +225,20 @@ impl Store {
             .is_some_and(|s| matches!(s, SessionStatus::Busy | SessionStatus::Retry { .. }))
     }
 
+    /// M3d: agent-agnostic status helpers so the UI never matches on the
+    /// opencode `SessionStatus` wire type directly.
+    pub fn is_working(&self, sid: &str) -> bool {
+        self.statuses
+            .get(sid)
+            .is_some_and(|s| matches!(s, SessionStatus::Busy | SessionStatus::Retry { .. }))
+    }
+
+    pub fn has_pending(&self, sid: &str) -> bool {
+        self.pending_permissions
+            .values()
+            .any(|p| p.session_id == sid)
+    }
+
     pub fn set_messages(&mut self, sid: &str, entries: Vec<MessageEntry>) {
         self.messages.insert(sid.to_string(), entries);
         self.recompute_totals();

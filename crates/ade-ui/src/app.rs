@@ -3,7 +3,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ade_core::state::MessageEntry;
 use ade_core::{Command, ConnState, PermissionResponse, RuntimeHandle, Store, WorktreeStatus};
 use ade_core::{DiffNote, Role, UnifiedMessage, parse_patch_lines};
 use gpui::*;
@@ -14,7 +13,6 @@ use gpui_component::{
     label::Label,
     text::TextView,
 };
-use opencode_codes::protocol_generated::types::{Message, Part, SessionStatus, ToolState};
 
 fn ok_color() -> Rgba {
     rgba(0x3fd17cff)
@@ -48,8 +46,6 @@ pub struct AdeApp {
     model_ix: Option<usize>,
     diff_notes: Vec<DiffNote>,
     annotate_target: Option<(String, String, u32)>,
-    /// M3d: v2 chat (reads `transcripts`) side by side with the legacy timeline.
-    chat_v2: bool,
 }
 
 impl AdeApp {
@@ -99,7 +95,6 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
-            chat_v2: false,
         }
     }
 
@@ -205,11 +200,7 @@ impl Render for AdeApp {
                             .flex_col()
                             .overflow_hidden()
                             .child(self.render_error_strip())
-                            .child(if self.chat_v2 {
-                                self.render_chat(window, cx)
-                            } else {
-                                self.render_timeline(window, cx).into_any_element()
-                            })
+                            .child(self.render_chat(window, cx))
                             .child(self.render_composer(cx)),
                     )
                     .child(self.render_right_panel(cx)),
@@ -274,15 +265,6 @@ impl AdeApp {
             )
             .child(div().flex_1())
             .child(
-                Button::new("chat-toggle")
-                    .label(if self.chat_v2 { "chat v2" } else { "timeline" })
-                    .xsmall()
-                    .compact()
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, _| {
-                        this.chat_v2 = !this.chat_v2;
-                    })),
-            )
-            .child(
                 Label::new(format!(
                     "ctx≈{:.1}k tok · ${:.4}",
                     t.total_context() / 1000.0,
@@ -297,11 +279,13 @@ impl AdeApp {
 
 impl AdeApp {
     fn session_dot(&self, id: &str) -> Option<Rgba> {
-        self.store.statuses.get(id).and_then(|st| match st {
-            SessionStatus::Busy => Some(ok_color()),
-            SessionStatus::Retry { .. } => Some(warn_color()),
-            SessionStatus::Idle => None,
-        })
+        if self.store.has_pending(id) {
+            return Some(warn_color());
+        }
+        if self.store.is_working(id) {
+            return Some(ok_color());
+        }
+        None
     }
 
     fn worktree_dot(&self, slug: &str) -> Option<Rgba> {
@@ -506,113 +490,11 @@ impl AdeApp {
     }
 }
 
-// --------------------------------------------------------------- timeline
+// ------------------------------------------------------------------- chat
 
 impl AdeApp {
-    fn render_timeline(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(entries) = self.store.active_messages() else {
-            return v_center("Create a session in the sidebar to begin.");
-        };
-        if entries.is_empty() {
-            return v_center("No messages yet — say something below.");
-        }
-
-        let entries: Vec<MessageEntry> = entries.clone();
-        let mut rows: Vec<AnyElement> = Vec::new();
-        let mut text_part_ix: usize = 0;
-
-        for entry in entries {
-            match &entry.info {
-                Message::User(_) => {
-                    let text = entry
-                        .parts
-                        .iter()
-                        .filter_map(|p| match p {
-                            Part::Text(t) => Some(t.text.clone()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if text.is_empty() {
-                        continue;
-                    }
-                    rows.push(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .pb_3()
-                            .pt_1()
-                            .child(
-                                div()
-                                    .max_w(px(640.))
-                                    .rounded_md()
-                                    .px_3()
-                                    .py_2()
-                                    .bg(rgb(0x242838))
-                                    .child(text),
-                            )
-                            .into_any_element(),
-                    );
-                }
-                Message::Assistant(a) => {
-                    rows.push(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .pt_2()
-                            .child(
-                                Label::new(format!("AGENT · {}", a.model_id))
-                                    .text_size(px(11.))
-                                    .text_color(muted_color()),
-                            )
-                            .children((a.cost > 0.).then(|| {
-                                Label::new(format!("${:.4}", a.cost))
-                                    .text_size(px(11.))
-                                    .text_color(muted_color())
-                            }))
-                            .into_any_element(),
-                    );
-                    for part in &entry.parts {
-                        rows.push(self.part_row(part, text_part_ix, window, cx));
-                        if matches!(part, Part::Text(_)) {
-                            text_part_ix += 1;
-                        }
-                    }
-                    rows.push(div().h(px(6.)).into_any_element());
-                }
-            }
-        }
-
-        match self
-            .store
-            .active_session
-            .as_ref()
-            .and_then(|id| self.store.statuses.get(id))
-        {
-            Some(SessionStatus::Busy) | Some(SessionStatus::Retry { .. }) => {
-                rows.push(
-                    Label::new("▌ agent working…")
-                        .text_color(ok_color())
-                        .into_any_element(),
-                );
-            }
-            _ => {}
-        }
-
-        div()
-            .id("timeline")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .px_3()
-            .py_2()
-            .children(rows)
-            .into_any_element()
-    }
-
     /// M3d: agent-agnostic chat. Reads only `transcripts`/`costs` —
-    /// no opencode wire types. Legacy timeline stays until parity.
+    /// no opencode wire types.
     fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(sid) = self.store.active_session.clone() else {
             return v_center("Create a session in the sidebar to begin.");
@@ -718,129 +600,6 @@ impl AdeApp {
                     .into_any_element()
             }
         }
-    }
-
-    fn part_row(
-        &self,
-        part: &Part,
-        text_part_ix: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let json = serde_json::to_string_pretty(part).unwrap_or_default();
-        let inspect = {
-            let json = json.clone();
-            cx.listener(move |app, _: &ClickEvent, _, _| {
-                app.selected_part = Some(json.clone());
-                app.right_tab = RightTab::Inspector;
-            })
-        };
-
-        let content: AnyElement = match part {
-            Part::StepStart(_) | Part::StepFinish(_) => {
-                return div().into_any_element();
-            }
-            Part::Text(t) => {
-                if t.synthetic.unwrap_or(false) || t.text.trim().is_empty() {
-                    return div().into_any_element();
-                }
-                TextView::markdown(
-                    SharedString::from(format!("md-{text_part_ix}")),
-                    t.text.clone(),
-                    window,
-                    cx,
-                )
-                .into_any_element()
-            }
-            Part::Reasoning(r) => {
-                if r.text.trim().is_empty() {
-                    return div().into_any_element();
-                }
-                div()
-                    .border_l_2()
-                    .border_color(muted_color())
-                    .pl_2()
-                    .my_1()
-                    .child(
-                        Label::new(format!("thinking… {}", truncate(&r.text, 400)))
-                            .text_size(px(11.))
-                            .text_color(muted_color()),
-                    )
-                    .into_any_element()
-            }
-            Part::Tool(t) => {
-                let (color, status, body): (Rgba, &str, String) = match &t.state {
-                    ToolState::Pending(s) => (
-                        warn_color(),
-                        "pending",
-                        serde_json::to_string(&s.input).unwrap_or_default(),
-                    ),
-                    ToolState::Running(s) => (
-                        warn_color(),
-                        "running",
-                        serde_json::to_string(&s.input).unwrap_or_default(),
-                    ),
-                    ToolState::Completed(s) => (
-                        ok_color(),
-                        "completed",
-                        format!(
-                            "{}\n→ {}",
-                            serde_json::to_string(&s.input).unwrap_or_default(),
-                            truncate(s.output.trim(), 500)
-                        ),
-                    ),
-                    ToolState::Error(s) => (bad_color(), "error", s.error.clone()),
-                };
-                div()
-                    .my_1()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(soft_border())
-                    .px_2()
-                    .py_1()
-                    .flex()
-                    .flex_col()
-                    .gap_0p5()
-                    .max_w_full()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .child(Icon::new(IconName::CircleCheck).xsmall().text_color(color))
-                            .child(Label::new(format!("{} · {status}", t.tool)).text_color(color)),
-                    )
-                    .child(
-                        Label::new(body)
-                            .text_size(px(11.))
-                            .text_color(muted_color()),
-                    )
-                    .into_any_element()
-            }
-            Part::Patch(p) => Label::new(format!("patch · {} file(s)", p.files.len()))
-                .text_size(px(11.))
-                .text_color(muted_color())
-                .into_any_element(),
-            other => Label::new(part_kind(other))
-                .text_size(px(11.))
-                .text_color(muted_color())
-                .into_any_element(),
-        };
-
-        div()
-            .flex()
-            .items_start()
-            .gap_1()
-            .child(div().flex_1().min_w_0().overflow_hidden().child(content))
-            .child(
-                Button::new(SharedString::from(format!("inspect-{}", json.len())))
-                    .label("{}")
-                    .xsmall()
-                    .outline()
-                    .on_click(inspect),
-            )
-            .into_any_element()
     }
 
     fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1369,19 +1128,6 @@ impl AdeApp {
 }
 
 // ---------------------------------------------------------------- helpers
-
-fn part_kind(p: &Part) -> &'static str {
-    match p {
-        Part::Subtask(_) => "[subtask]",
-        Part::File(_) => "[file]",
-        Part::Snapshot(_) => "[snapshot]",
-        Part::Agent(_) => "[agent]",
-        Part::Retry(_) => "[retry]",
-        Part::Compaction(_) => "[compaction]",
-        _ => "[part]",
-    }
-}
-
 fn truncate(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()
