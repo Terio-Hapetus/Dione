@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/ade-core", "crates/ade-ui", "crates/ade-vm", "crates/ade-agent"]
+members = [
+    "crates/ade-core",
+    "crates/ade-ui",
+    "crates/ade-vm",
+    "crates/ade-agent",
+    "crates/ade-workspace",
+]
 
 [workspace.package]
 version = "0.1.0"
