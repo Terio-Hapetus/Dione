@@ -7,12 +7,21 @@ crates/
 ├── ade-core/          # runtime, headless-testable — NO UI dependency
 │   ├── config.rs      # AppConfig (~/.config/ade/config.toml)
 │   ├── worktree.rs    # pure helpers: slug/branch/path + WorktreeRecord
-│   ├── state.rs       # Store mirror + apply_event()
+│   ├── state.rs       # facade → state/{types,store,events}.rs
 │   ├── server.rs      # spawn/manage `opencode serve` + client
-│   ├── runtime.rs     # tokio loop: commands + SSE pump + poll
+│   ├── runtime.rs     # facade → runtime/{commands,session,sse,
+│   │                  #   reconcile,handlers,io}.rs
+│   ├── transcript.rs  # UnifiedMessage/Cost/TaskId (shared leaf types)
 │   └── context.rs     # context-window view-model + token est
+├── ade-agent/         # AgentBackend trait + MockAgent + OpencodeAdapter
+│                      # (moved from ade-core; depends one-way on ade-core)
+├── ade-workspace/     # Task + WorkspaceProvider { HostProvider, Mock }
+│                      # (M4 kickoff; MicroVm provider lands in M5)
+├── ade-vm/            # VmConfig/VmState/VmBackend { Mock } + probe_kvm
+│                      # (M5 kickoff; CloudHypervisor/ExternalSbx later)
 └── ade-ui/            # GPUI desktop bin
-    └── src/{main,app}.rs
+    └── src/{main,app}.rs + views/{theme,top_bar,sidebar,chat,
+                                  composer,right_panel,diff,permission}.rs
 ```
 
 ## Data flow
@@ -60,9 +69,10 @@ publish `Arc<Store>` via `RwLock` → GPUI view polls every 160 ms,
   `GET /session/{id}/todo`, `GET /provider` (defensive parse),
   `GET /global/health`.
 
-## UI (ade-ui/src/app.rs)
+## UI (ade-ui/src/app.rs + views/)
 
-`AdeApp { rt, store, input, right_tab, selected_part, model_ix }`.
+`AdeApp { rt, store, input, right_tab, model_ix, diff_notes,
+annotate_target }` (state + actions + root `Render` only).
 TopBar (conn dot, model picker, ctx/cost) · Sidebar (sessions, click to
 select, + new) · Timeline (user right / agent left, markdown, tool cards,
 `{}` inspect buttons) · Composer (Send/Abort) · Right panel

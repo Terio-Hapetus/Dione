@@ -2,34 +2,40 @@
 
 ## Current milestone
 
-M3 — Agent-agnostic nền DONE. Next: M4 Workspace + Task (Host).
+M4 — Workspace + Task (Host) started. Restructure DONE (5 crates).
 
 ## Last commit (đã verify)
 
-- `47cba78` feat(m3a): `transcript.rs` (TaskId UUID + UnifiedMessage/Cost/
-  entry_to_unified + Store dual-write + mirror test) — check/clippy/fmt
-  xanh, 30/30 unit (26 cũ + 4 mới), workspace check pass
-- `4dfdeb0` feat(m3b): `agent.rs` (AgentBackend + OpencodeAdapter/collect_new/
-  apply_agent_event + Mock, 5 tests) — 35/35 unit, clippy/fmt xanh
-- `700c760` feat(m3c): `git_diff` (GitDiff/files+raw/to_json + fetch_diff
-  git-first + HTTP fallback + worktree tạm test) — 36/36, clippy/fmt xanh
-- `89a94a5`/`2c8f24c`/`a5d715a` feat(m3d 3 slices): Chat v2 đọc transcripts →
-  xóa Timeline cũ (app.rs hết import opencode) → context.rs đọc costs —
-  Xvfb smoke clean ×3, 36/36 unit
-- `bed2d72` feat(m2f): Tier A live test (`tests/live_tier_a.rs`, 196 dòng)
-  — serve thật + 2 worktrees + sessions + diff fetch + merge winner +
-  remove, 2 passed in ~9s, không tốn prompt
-- `41de1a5` docs: v2 plan M3–M15 + specs + ADRs + labs (13 files)
-- Verified: check pass, clippy 0 warnings (ngoài future-incompat của
-  dep `proc-macro-error2`), 26/26 unit + Tier A xanh, `cargo fmt` sạch,
-  Xvfb smoke clean (app sống 60s, không panic).
-- Local `master` → `main` (track `origin/main`); dọn worktree `task-1` thừa.
-- Chưa push: local ahead `origin/main` 2 commits (`41de1a5`, `bed2d72`).
+- `3a7091d` refactor(core): `state.rs` → `state/{types,store,events}` + facade
+  (pure move, public paths giữ nguyên) — 36/36 xanh
+- `70aac9c` refactor(core): `runtime.rs` → `runtime/{commands,session,sse,
+  reconcile,handlers,io}` + 3 tests pure mới (drop_scope/scoped_sessions/
+  sessions_for_scope) — 39/39 xanh
+- `cb2cc0c` refactor(ui): `app.rs` (1145) → `app.rs` (~200) +
+  `views/{theme,top_bar,sidebar,chat,composer,right_panel,diff,
+  permission}` + 2 refactors nhỏ (xóa `selected_part` chết, xóa diff
+  note theo value thay vì index) — clippy sạch
+- `4bf4d0e` feat(m5a): crate `ade-vm` (VmConfig/NetPolicy/SshInfo/VmHandle/
+  VmState + VmBackend trait + MockBackend + probe_kvm) — 4 tests xanh
+- `ad83820` refactor(core): move `agent.rs` → crate `ade-agent` (one-way
+  dep vào ade-core; core 39→34, agent 5 tests đi theo)
+- `82e7042` feat(m4a): crate `ade-workspace` (Task + WorkspaceProvider seam
+  + HostProvider + MockWorkspace) — 6 tests xanh
+- Verified: `cargo check --workspace` + clippy 0 warnings (ngoài
+  future-incompat của dep `proc-macro-error2`) + `cargo fmt` sạch +
+  `cargo test --workspace` 49 passed (14 core unit + 5 agent + 4 vm +
+  6 workspace + 13 state + 7 worktree), Xvfb smoke clean (app sống,
+  không panic, stderr rỗng).
+- File lớn nhất còn lại: `runtime/handlers.rs` 293 dòng (~250 code +
+  tests), `state/store.rs` 348 (code ~270 + tests) — chấp nhận được,
+  tách tiếp khi M4 runtime supervisors đụng vào.
 
 ## Next up
 
-1. M4 kickoff: `workspace.rs` + `HostProvider` + `Task` (theo ARCHITECTURE-v2).
-2. Tier B live prompt: opt-in `ADE_LIVE_PROMPT=1 cargo test -p ade-core
+1. M4 tiếp: `agents.toml` + probe `which <bin>` (tick xanh/đỏ ở Agent picker).
+2. M4 tiếp: runtime supervisors thay clients + kanban-lite dispatcher 60s.
+3. M5 tiếp: `CloudHypervisorBackend` / `ExternalSbxBackend` cho `ade-vm`.
+4. Tier B live prompt: opt-in `ADE_LIVE_PROMPT=1 cargo test -p ade-core
    --features integration-tests tier_b` — tốn quota, chạy tay khi cần.
 
 ## Blockers
