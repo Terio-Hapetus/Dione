@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-M3 — Agent-agnostic nền. M3a+M3b+M3c DONE. Next: M3d UI Chat.
+M3 — Agent-agnostic nền DONE. Next: M4 Workspace + Task (Host).
 
 ## Last commit (đã verify)
 
@@ -13,6 +13,9 @@ M3 — Agent-agnostic nền. M3a+M3b+M3c DONE. Next: M3d UI Chat.
   apply_agent_event + Mock, 5 tests) — 35/35 unit, clippy/fmt xanh
 - `700c760` feat(m3c): `git_diff` (GitDiff/files+raw/to_json + fetch_diff
   git-first + HTTP fallback + worktree tạm test) — 36/36, clippy/fmt xanh
+- `89a94a5`/`2c8f24c`/`a5d715a` feat(m3d 3 slices): Chat v2 đọc transcripts →
+  xóa Timeline cũ (app.rs hết import opencode) → context.rs đọc costs —
+  Xvfb smoke clean ×3, 36/36 unit
 - `bed2d72` feat(m2f): Tier A live test (`tests/live_tier_a.rs`, 196 dòng)
   — serve thật + 2 worktrees + sessions + diff fetch + merge winner +
   remove, 2 passed in ~9s, không tốn prompt
@@ -25,7 +28,7 @@ M3 — Agent-agnostic nền. M3a+M3b+M3c DONE. Next: M3d UI Chat.
 
 ## Next up
 
-1. M3d UI Chat đọc `transcripts` (song song Timeline cũ, slice <200 dòng).
+1. M4 kickoff: `workspace.rs` + `HostProvider` + `Task` (theo ARCHITECTURE-v2).
 2. Tier B live prompt: opt-in `ADE_LIVE_PROMPT=1 cargo test -p ade-core
    --features integration-tests tier_b` — tốn quota, chạy tay khi cần.
 
