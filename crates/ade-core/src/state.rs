@@ -7,6 +7,7 @@ use opencode_codes::protocol_generated::types::{
     Event, Message, MessageWithParts, Part, Session, SessionStatus, Todo,
 };
 
+use crate::transcript::{Cost, TaskId, UnifiedMessage, cost_of_message, entry_to_unified};
 use crate::worktree::{WorktreeRecord, WorktreeStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -168,6 +169,10 @@ pub struct Store {
     pub active_session: Option<String>,
     // M2: session id -> "" (repo root) or worktree slug.
     pub session_scope: BTreeMap<String, String>,
+    // M3a: agent-agnostic mirror (dual-write with legacy messages).
+    pub transcripts: BTreeMap<TaskId, Vec<UnifiedMessage>>,
+    pub costs: BTreeMap<TaskId, Cost>,
+    pub session_task: BTreeMap<String, TaskId>,
     /// Sessions removed with their worktree: stray in-flight SSE frames for
     /// these ids are ignored instead of resurrecting them.
     pub retired_sessions: BTreeSet<String>,
@@ -223,6 +228,77 @@ impl Store {
     pub fn set_messages(&mut self, sid: &str, entries: Vec<MessageEntry>) {
         self.messages.insert(sid.to_string(), entries);
         self.recompute_totals();
+        let snapshot: Vec<(Message, Vec<Part>)> = self
+            .messages
+            .get(sid)
+            .map(|v| {
+                v.iter()
+                    .map(|e| (e.info.clone(), e.parts.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (info, parts) in &snapshot {
+            self.mirror_entry(sid, info, parts);
+        }
+    }
+
+    // -- M3a: unified transcript (dual-write) -------------------------------
+    /// Stable task id for a session, allocating on first use.
+    pub fn task_for_session(&mut self, sid: &str) -> TaskId {
+        if let Some(t) = self.session_task.get(sid) {
+            return *t;
+        }
+        let t = TaskId::new();
+        self.session_task.insert(sid.to_string(), t);
+        t
+    }
+
+    /// Insert or replace a unified message by id (idempotent re-mirror).
+    pub fn push_unified(&mut self, msg: UnifiedMessage) {
+        let list = self.transcripts.entry(msg.task).or_default();
+        match list.iter_mut().find(|m| m.id == msg.id) {
+            Some(m) => *m = msg,
+            None => list.push(msg),
+        }
+    }
+
+    pub fn transcript_for_session(&self, sid: &str) -> &[UnifiedMessage] {
+        match self
+            .session_task
+            .get(sid)
+            .and_then(|t| self.transcripts.get(t))
+        {
+            Some(v) => v.as_slice(),
+            None => &[],
+        }
+    }
+
+    fn mirror_entry(&mut self, sid: &str, info: &Message, parts: &[Part]) {
+        let task = self.task_for_session(sid);
+        for u in entry_to_unified(task, info, parts) {
+            self.push_unified(u);
+        }
+        self.recompute_task_cost(task);
+    }
+
+    fn recompute_task_cost(&mut self, task: TaskId) {
+        let mut c = Cost::default();
+        let sids: Vec<String> = self
+            .session_task
+            .iter()
+            .filter(|(_, t)| **t == task)
+            .map(|(s, _)| s.clone())
+            .collect();
+        for sid in &sids {
+            if let Some(entries) = self.messages.get(sid) {
+                for e in entries {
+                    if let Some(mc) = cost_of_message(&e.info) {
+                        c.add(mc);
+                    }
+                }
+            }
+        }
+        self.costs.insert(task, c);
     }
 
     // -- M2: fleet ----------------------------------------------------------
@@ -293,6 +369,7 @@ impl Store {
             }
         }
         self.retired_sessions.insert(sid.to_string());
+        self.session_task.remove(sid);
         self.session_scope.remove(sid)
     }
 
@@ -335,6 +412,7 @@ impl Store {
                 self.sessions.remove(id);
                 self.statuses.remove(id);
                 self.messages.remove(id);
+                self.session_task.remove(id);
                 if self.active_session.as_deref() == Some(id) {
                     self.active_session = self.sessions.keys().next().cloned();
                 }
@@ -349,31 +427,59 @@ impl Store {
             }
             Event::MessageUpdated(e) => {
                 let sid = e.properties.session_id.clone();
-                let entries = self.messages.entry(sid).or_default();
-                let id = message_id(&e.properties.info);
-                match entries.iter_mut().find(|x| message_id(&x.info) == id) {
-                    Some(x) => x.info = e.properties.info.clone(),
-                    None => entries.push(MessageEntry {
-                        info: e.properties.info.clone(),
-                        parts: Vec::new(),
-                    }),
+                let info = e.properties.info.clone();
+                {
+                    let entries = self.messages.entry(sid.clone()).or_default();
+                    let id = message_id(&info);
+                    match entries.iter_mut().find(|x| message_id(&x.info) == id) {
+                        Some(x) => x.info = info.clone(),
+                        None => entries.push(MessageEntry {
+                            info: info.clone(),
+                            parts: Vec::new(),
+                        }),
+                    }
+                    self.recompute_totals();
                 }
-                self.recompute_totals();
+                let parts: Vec<Part> = self
+                    .messages
+                    .get(&sid)
+                    .and_then(|v| {
+                        let id = message_id(&info);
+                        v.iter().find(|x| message_id(&x.info) == id)
+                    })
+                    .map(|e| e.parts.clone())
+                    .unwrap_or_default();
+                self.mirror_entry(&sid, &info, &parts);
             }
             Event::MessagePartUpdated(e) => {
                 let sid = e.properties.session_id.clone();
-                let entries = self.messages.entry(sid).or_default();
-                if let Some((msg_id, part_id)) = part_key(&e.properties.part)
-                    && let Some(entry) = entries.iter_mut().find(|x| message_id(&x.info) == msg_id)
+                let part = e.properties.part.clone();
                 {
-                    match entry
-                        .parts
-                        .iter_mut()
-                        .find(|p| part_id_of(p) == Some(part_id.as_str()))
+                    let entries = self.messages.entry(sid.clone()).or_default();
+                    if let Some((msg_id, part_id)) = part_key(&part)
+                        && let Some(entry) =
+                            entries.iter_mut().find(|x| message_id(&x.info) == msg_id)
                     {
-                        Some(p) => *p = e.properties.part.clone(),
-                        None => entry.parts.push(e.properties.part.clone()),
+                        match entry
+                            .parts
+                            .iter_mut()
+                            .find(|p| part_id_of(p) == Some(part_id.as_str()))
+                        {
+                            Some(p) => *p = part.clone(),
+                            None => entry.parts.push(part.clone()),
+                        }
                     }
+                }
+                let snapshot: Option<(Message, Vec<Part>)> =
+                    self.messages.get(&sid).and_then(|v| {
+                        part_key(&part).and_then(|(msg_id, _)| {
+                            v.iter()
+                                .find(|x| message_id(&x.info) == msg_id)
+                                .map(|e| (e.info.clone(), e.parts.clone()))
+                        })
+                    });
+                if let Some((info, parts)) = snapshot {
+                    self.mirror_entry(&sid, &info, &parts);
                 }
             }
             Event::PermissionAsked(e) => {
@@ -457,6 +563,9 @@ fn part_id_of(p: &Part) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use opencode_codes::protocol_generated::types::{
+        TextPart, TextPartInputTime, UserMessage, UserMessageModel, UserMessageTime,
+    };
     use std::path::Path;
 
     fn record(slug: &str) -> WorktreeRecord {
@@ -486,5 +595,51 @@ mod tests {
     fn set_active_rejects_unknown() {
         let mut s = Store::default();
         assert!(!s.set_active("nope"));
+    }
+
+    #[test]
+    fn set_messages_mirrors_transcript() {
+        let mut s = Store::default();
+        let info = Message::User(UserMessage {
+            agent: "opencode".into(),
+            format: None,
+            id: "u1".into(),
+            model: UserMessageModel {
+                model_id: "m".into(),
+                provider_id: "p".into(),
+                variant: None,
+            },
+            role: "user".into(),
+            session_id: "s1".into(),
+            summary: None,
+            system: None,
+            time: UserMessageTime { created: 7.0 },
+            tools: None,
+        });
+        let parts = vec![Part::Text(TextPart {
+            id: "p1".into(),
+            ignored: None,
+            message_id: "u1".into(),
+            metadata: None,
+            session_id: "s1".into(),
+            synthetic: None,
+            text: "hello mirror".into(),
+            time: Some(TextPartInputTime {
+                end: None,
+                start: 1,
+            }),
+            type_: "text".into(),
+        })];
+        s.set_messages("s1", vec![MessageEntry { info, parts }]);
+        // Legacy still authoritative …
+        assert_eq!(s.messages.get("s1").unwrap().len(), 1);
+        // … and the unified mirror follows.
+        let t = s.transcript_for_session("s1");
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].role, crate::transcript::Role::User);
+        assert_eq!(t[0].text, "hello mirror");
+        // Stable mapping: second write lands in the same task.
+        let task = t[0].task;
+        assert_eq!(s.task_for_session("s1"), task);
     }
 }

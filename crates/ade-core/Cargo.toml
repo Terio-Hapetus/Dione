@@ -17,6 +17,7 @@ tracing = { workspace = true }
 toml = { workspace = true }
 dirs = { workspace = true }
 portpicker = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
