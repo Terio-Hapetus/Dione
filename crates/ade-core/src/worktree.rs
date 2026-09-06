@@ -165,6 +165,38 @@ pub async fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, WorktreeError> {
     parse_porcelain(&run_git(repo, &["worktree", "list", "--porcelain"]).await?)
 }
 
+/// Agent-agnostic diff of one checkout vs its HEAD, via git directly
+/// (no `/session/diff`). `raw` covers tracked changes; `files` lists every
+/// dirty path including untracked ones (from `status --porcelain`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GitDiff {
+    pub files: Vec<String>,
+    pub raw: String,
+}
+
+impl GitDiff {
+    pub fn is_empty(&self) -> bool {
+        self.raw.trim().is_empty() && self.files.is_empty()
+    }
+
+    /// Same shape as the legacy `diffs` map values, plus `source: "git"`.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({ "source": "git", "files": self.files, "raw": self.raw })
+    }
+}
+
+pub async fn git_diff(path: &Path) -> Result<GitDiff, WorktreeError> {
+    let raw = run_git(path, &["diff", "HEAD", "--"]).await?;
+    let status = run_git(path, &["status", "--porcelain"]).await?;
+    let mut files: Vec<String> = status
+        .lines()
+        .filter_map(|l| l.split_whitespace().last().map(str::to_string))
+        .collect();
+    files.sort();
+    files.dedup();
+    Ok(GitDiff { files, raw })
+}
+
 /// Merge `ade/<slug>` into the repo checkout with `--no-ff`, then remove
 /// the worktree. Fails cleanly on a dirty repo or conflicts so the user can
 /// resolve by hand; nothing is deleted in that case.

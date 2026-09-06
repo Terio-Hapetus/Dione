@@ -165,3 +165,25 @@ async fn merge_winner_refuses_dirty_repo() {
     worktree::remove(&repo, "feat-dirty").await.unwrap();
     cleanup(&repo);
 }
+
+#[tokio::test]
+async fn git_diff_sees_uncommitted_changes() {
+    let repo = init_repo();
+    let r = worktree::create(&repo, "feat-diff").await.unwrap();
+    // Clean checkout: empty diff.
+    let clean = worktree::git_diff(&r.path).await.unwrap();
+    assert!(clean.is_empty());
+
+    std::fs::write(r.path.join("f.txt"), "changed\n").unwrap();
+    std::fs::write(r.path.join("new.txt"), "untracked\n").unwrap();
+    let d = worktree::git_diff(&r.path).await.unwrap();
+    assert!(!d.is_empty());
+    assert!(d.files.contains(&"f.txt".to_string()));
+    assert!(d.files.contains(&"new.txt".to_string()));
+    assert!(d.raw.contains("changed"), "raw diff: {}", d.raw);
+    // JSON shape fits the legacy `diffs` map.
+    assert_eq!(d.to_json()["source"], "git");
+
+    worktree::remove(&repo, "feat-diff").await.unwrap();
+    cleanup(&repo);
+}

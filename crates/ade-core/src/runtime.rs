@@ -644,6 +644,23 @@ async fn fan_out(st: &mut LoopState, text: String) {
 }
 
 async fn fetch_diff(st: &mut LoopState, client: &OpencodeClient, sid: &str) {
+    // M3c: git first (agent-agnostic) — resolve the session's checkout.
+    let scope = st.store.scope_of(sid).to_string();
+    let path = if scope.is_empty() {
+        st.repo.clone()
+    } else {
+        worktree::worktree_path(&st.repo, &scope)
+    };
+    match worktree::git_diff(&path).await {
+        Ok(d) => {
+            st.store.diffs.insert(sid.to_string(), d.to_json());
+            return;
+        }
+        Err(e) => {
+            tracing::debug!("git diff failed for {sid}, falling back to /session/diff: {e}");
+        }
+    }
+    // Legacy fallback: opencode wire (removed once the UI reads git diffs).
     let path = format!("/session/{sid}/diff");
     match client
         .request::<serde_json::Value>(reqwest::Method::GET, &path, None)
