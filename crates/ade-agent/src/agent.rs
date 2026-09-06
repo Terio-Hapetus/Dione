@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 use opencode_codes::protocol_generated::types::SessionStatus;
 
-use crate::state::Store;
-use crate::transcript::{Cost, Role, TaskId, UnifiedMessage};
+use ade_core::state::Store;
+use ade_core::transcript::{Cost, Role, TaskId, UnifiedMessage};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentStatus {
