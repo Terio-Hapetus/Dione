@@ -122,6 +122,7 @@ fn copy_loop<R: Read, W: Write>(r: &mut R, w: &mut W) {
 
 /// Handle to a running `127.0.0.1:<port> → vsock(cid:port)` forward.
 /// `stop()` unblocks accept with a dummy connection and joins.
+#[derive(Debug)]
 pub struct ProxyHandle {
     pub port: u16,
     shutdown: Arc<AtomicBool>,
