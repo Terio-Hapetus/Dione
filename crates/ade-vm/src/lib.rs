@@ -6,6 +6,8 @@
 
 pub mod backend;
 pub mod config;
+pub mod sbx;
 
 pub use backend::{MockBackend, VmBackend, VmError, probe_kvm};
 pub use config::{ImageRef, NetPolicy, SshInfo, VmConfig, VmHandle, VmState};
+pub use sbx::ExternalSbxBackend;
