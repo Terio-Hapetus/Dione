@@ -11,6 +11,7 @@ pub mod keys;
 pub mod manager;
 pub mod sbx;
 pub mod uds;
+pub mod vsock_proxy;
 
 pub use backend::{MockBackend, VmBackend, VmError, probe_kvm};
 pub use config::{ImageRef, NetPolicy, SshInfo, VmConfig, VmHandle, VmState};
