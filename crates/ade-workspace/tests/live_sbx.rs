@@ -2,7 +2,6 @@
 //! boot → exec → 2-way mount check → stop. Runs ONLY with
 //! `ADE_LIVE_SBX=1` (needs sbx login + KVM); otherwise SKIP-pass.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use ade_vm::{EphemeralKey, ExternalSbxBackend, VmConfig, VmManager, VmTimeouts};

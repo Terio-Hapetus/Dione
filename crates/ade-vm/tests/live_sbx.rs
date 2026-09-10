@@ -2,7 +2,6 @@
 //! Runs ONLY with `ADE_LIVE_SBX=1` (needs sbx login + KVM).
 //! Without it, prints SKIP and passes so default CI stays green.
 
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ade_vm::{ExternalSbxBackend, VmBackend, VmConfig};
