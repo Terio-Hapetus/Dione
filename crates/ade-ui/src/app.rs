@@ -3,10 +3,12 @@
 //! `composer`, `right_panel`, `diff`, `permission`); shared colors and
 //! text helpers live in `views::theme`.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use ade_core::{Command, DiffNote, RuntimeHandle, Store};
+use ade_vm::{VmState, probe_kvm};
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _,
@@ -28,6 +30,11 @@ pub struct AdeApp {
     pub(crate) model_ix: Option<usize>,
     pub(crate) diff_notes: Vec<DiffNote>,
     pub(crate) annotate_target: Option<(String, String, u32)>,
+    /// KVM capability at startup. False → Host-mode banner (Lab 6).
+    pub(crate) vm_available: bool,
+    /// Workspace slug → VM lifecycle state. Filled by the VmManager
+    /// wiring (post-M5 Open-Workspace flow); empty until then.
+    pub(crate) vm_states: BTreeMap<String, VmState>,
 }
 
 impl AdeApp {
@@ -76,7 +83,16 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
+            vm_available: probe_kvm(),
+            vm_states: BTreeMap::new(),
         }
+    }
+
+    /// Record a workspace VM state for the Fleet badge.
+    /// Called by the VmManager thread (post-M5 Open-Workspace flow).
+    #[allow(dead_code)]
+    pub(crate) fn set_vm_state(&mut self, slug: String, state: VmState) {
+        self.vm_states.insert(slug, state);
     }
 
     pub(crate) fn send_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -180,6 +196,7 @@ impl Render for AdeApp {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
+                            .child(self.render_vm_banner())
                             .child(self.render_error_strip())
                             .child(self.render_chat(window, cx))
                             .child(self.render_composer(cx)),

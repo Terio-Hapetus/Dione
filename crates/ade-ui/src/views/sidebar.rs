@@ -134,7 +134,8 @@ impl AdeApp {
                                 .children(dot.map(|c| {
                                     Icon::new(IconName::CircleCheck).xsmall().text_color(c)
                                 }))
-                                .child(Label::new(format!("⑂ {slug}")).text_size(px(12.))),
+                                .child(Label::new(format!("⑂ {slug}")).text_size(px(12.)))
+                                .children(self.vm_badge(&slug)),
                         )
                         .child(
                             Button::new(SharedString::from(format!("wt-del-{slug}")))
