@@ -74,6 +74,17 @@ impl<B: VmBackend> VmManager<B> {
             .unwrap_or(VmState::Missing)
     }
 
+    /// Current SSH endpoint for a managed workspace (one probe, no retry).
+    /// Providers are built from this after `ensure_ready`.
+    pub fn ssh_info(&self, workspace: &Path) -> anyhow::Result<super::config::SshInfo> {
+        let key = canon(workspace);
+        let m = self
+            .vms
+            .get(&key)
+            .ok_or_else(|| anyhow::anyhow!("no vm for {}", key.display()))?;
+        self.backend.wait_ssh(&m.handle)
+    }
+
     /// Boot (if needed) → wait SSH → verify mount → Ready.
     /// Idempotent: a Ready/Running VM is returned as-is.
     pub fn ensure_ready(
