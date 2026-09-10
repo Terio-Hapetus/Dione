@@ -10,6 +10,7 @@ pub mod image;
 pub mod keys;
 pub mod manager;
 pub mod sbx;
+pub mod seed;
 pub mod uds;
 pub mod vsock_proxy;
 
