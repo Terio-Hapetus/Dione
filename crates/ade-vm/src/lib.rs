@@ -10,6 +10,7 @@ pub mod image;
 pub mod keys;
 pub mod manager;
 pub mod sbx;
+pub mod uds;
 
 pub use backend::{MockBackend, VmBackend, VmError, probe_kvm};
 pub use config::{ImageRef, NetPolicy, SshInfo, VmConfig, VmHandle, VmState};
