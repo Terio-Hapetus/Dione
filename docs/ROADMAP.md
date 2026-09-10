@@ -52,10 +52,16 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 
 ## M5 — MicroVM lõi (1 VM / workspace)
 
-- [ ] `vm.rs` + `Mock` + probe `/dev/kvm` → fallback Host (CI xanh không KVM)
-- [ ] `CloudHypervisorBackend`: boot → wait_ssh → mount virtiofs → stop
-- [ ] `ExternalSbxBackend` (`sbx run --mount`): đường tắt VM thật sớm
-- [ ] Tách crates `ade-workspace` / `ade-vm` khi API ổn định
+- [x] `vm.rs` + `Mock` + probe `/dev/kvm` → fallback Host (CI xanh không KVM)
+- [x] `CloudHypervisorBackend`: boot → wait_ssh → mount virtiofs → stop
+      (REST qua UDS, seed cloud-init, proxy vsock; live-gate `ADE_LIVE_VM=1`)
+- [x] `VmManager` (probe→boot→ssh→mount→ready, timeouts) + `MicroVm`
+      provider (exec ssh, secrets-via-env) + `EphemeralKey` + image pull/verify
+- [x] UI: badge `VmState` ở Fleet + banner Host mode khi mất KVM (Lab 6)
+- [x] Tách crates `ade-workspace` / `ade-vm` khi API ổn định
+- [ ] Live lần đầu trên máy KVM: Lab 2/3 xanh, re-verify flag virtiofsd/vsock
+- Ghi chú: `ExternalSbx` đã implement để validate sớm rồi xóa (ADR-0005),
+  CH là backend duy nhất.
 
 ## M6 — Terminal modern (Warp-like + SSH attach)
 

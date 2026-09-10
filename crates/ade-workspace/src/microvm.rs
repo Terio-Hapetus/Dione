@@ -15,8 +15,9 @@ pub struct SshTarget {
     pub key_path: PathBuf,
 }
 
-/// How a host cwd maps into the guest. sbx mounts absolute host paths
-/// (Identity); CloudHypervisor mounts the repo at `/workspace` (Mounted).
+/// How a host cwd maps into the guest. Direct passthrough mounts keep
+/// absolute host paths (Identity); CloudHypervisor mounts the repo at
+/// `/workspace` (Mounted).
 #[derive(Debug, Clone)]
 pub enum PathMapping {
     Identity,
@@ -47,8 +48,8 @@ impl PathMapping {
     }
 }
 
-/// Agent-facing provider for a booted MicroVM. Backend-agnostic: works
-/// for sbx (`<name>.sbx`) and CloudHypervisor (vsock-proxy port) alike.
+/// Agent-facing provider for a booted MicroVM. Backend-agnostic: any
+/// guest reachable over ssh with a known key and port works.
 /// Secrets ride in the command environment (`env K=V …`), never on disk.
 #[derive(Debug)]
 pub struct MicroVm {

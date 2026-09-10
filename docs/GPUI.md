@@ -40,6 +40,9 @@ under Xvfb).
   (no `.ghost()`); `TextView::markdown(id, md, window, cx)` needs a unique
   id per block; `InputState::new(window, cx)` + `InputEvent::PressEnter`;
   `Input::new(&entity_input_state)`.
+- `use gpui::*` imports gpui's `test` macro: plain `#[test]` in the same
+  file resolves to it and recurses (`recursion limit reached`). In test
+  modules use explicit paths (`crate::views::x::{f}`), never `use super::*`.
 - Headless smoke must unset Wayland vars or GPUI picks Wayland over Xvfb.
 - System deps: build-essential, libxkbcommon(-x11), libwayland, X11 client
   libs, x11-utils (xwininfo), xvfb, mesa-vulkan-drivers, DejaVu fonts

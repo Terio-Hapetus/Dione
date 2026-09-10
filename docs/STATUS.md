@@ -2,42 +2,45 @@
 
 ## Current milestone
 
-M4 — Workspace + Task (Host) started. Restructure DONE (5 crates).
+M5 — MicroVM lõi DONE (CH-only, live-gated). Next: M4 còn lại / M6 Terminal.
 
 ## Last commit (đã verify)
 
-- `3a7091d` refactor(core): `state.rs` → `state/{types,store,events}` + facade
-  (pure move, public paths giữ nguyên) — 36/36 xanh
-- `70aac9c` refactor(core): `runtime.rs` → `runtime/{commands,session,sse,
-  reconcile,handlers,io}` + 3 tests pure mới (drop_scope/scoped_sessions/
-  sessions_for_scope) — 39/39 xanh
-- `cb2cc0c` refactor(ui): `app.rs` (1145) → `app.rs` (~200) +
-  `views/{theme,top_bar,sidebar,chat,composer,right_panel,diff,
-  permission}` + 2 refactors nhỏ (xóa `selected_part` chết, xóa diff
-  note theo value thay vì index) — clippy sạch
-- `4bf4d0e` feat(m5a): crate `ade-vm` (VmConfig/NetPolicy/SshInfo/VmHandle/
-  VmState + VmBackend trait + MockBackend + probe_kvm) — 4 tests xanh
-- `ad83820` refactor(core): move `agent.rs` → crate `ade-agent` (one-way
-  dep vào ade-core; core 39→34, agent 5 tests đi theo)
-- `82e7042` feat(m4a): crate `ade-workspace` (Task + WorkspaceProvider seam
-  + HostProvider + MockWorkspace) — 6 tests xanh
-- Verified: `cargo check --workspace` + clippy 0 warnings (ngoài
-  future-incompat của dep `proc-macro-error2`) + `cargo fmt` sạch +
-  `cargo test --workspace` 49 passed (14 core unit + 5 agent + 4 vm +
-  6 workspace + 13 state + 7 worktree), Xvfb smoke clean (app sống,
-  không panic, stderr rỗng).
-- File lớn nhất còn lại: `runtime/handlers.rs` 293 dòng (~250 code +
-  tests), `state/store.rs` 348 (code ~270 + tests) — chấp nhận được,
-  tách tiếp khi M4 runtime supervisors đụng vào.
+- `090e4e8` → `b4155a6` feat(m5b/m5f): `ExternalSbxBackend` scaffold +
+  fake-shim + live tests `ADE_LIVE_SBX=1` (validate sớm VmManager/Provider)
+- `4092f7a` feat(m5c): `EphemeralKey` (ssh-keygen, wipe on drop) + image
+  pull/verify (curl resume + sha256; test bắt bug verify-bool bị nuốt)
+- `d09d6a3` feat(m5d): `VmManager` (key canonical path, timeouts boot
+  30s/ssh 20s/mount 10s, Error giữ retry tay) + `ssh_info` — 3 tests stub
+- `efc6be1` feat(m5e): `MicroVm` provider (exec ssh quoted, secrets
+  env-prefix, PathMapping Identity/Mounted) — 5 tests fake-ssh
+- `8c05ebb`/`c1c602e`/`fc2b636`/`7d54fbe` feat(m5g): UDS HTTP client +
+  vsock proxy (libc AF_VSOCK, bridge test) + cloud-init seed +
+  `CloudHypervisorBackend` (create/boot/shutdown/delete/info,
+  virtiofsd spawn, Drop kill)
+- `2345604` feat(m5h): live test `ADE_LIVE_VM=1` (Lab 2 boot + Lab 3
+  mount 2 chiều, SKIP-pass mặc định)
+- `a3bb7bc` feat(m5i): UI `vm_badge` (label/dot + Fleet badge + banner
+  Host mode khi mất KVM, Lab 6) — phát hiện pitfall `#[test]` vs
+  `use gpui::*` (đã ghi vào GPUI.md)
+- Xóa sbx (ADR-0005: thiếu virtiofs/vsock/image controls) — CH duy nhất
+- Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
+  sạch + `cargo test --workspace` 78 passed (core 14 + agent 5 + vm 25
+  + live_ch 1 + workspace 11 + state 13 + worktree 7 + ui 2),
+  Xvfb smoke 68s clean.
+- Chưa live-test thật (máy này không KVM/sbx): các slice live gắn gate
+  env, chạy trên máy đủ điều kiện khi có.
 
 ## Next up
 
-1. M4 tiếp: `agents.toml` + probe `which <bin>` (tick xanh/đỏ ở Agent picker).
-2. M4 tiếp: runtime supervisors thay clients + kanban-lite dispatcher 60s.
-3. M5 tiếp: `CloudHypervisorBackend` / `ExternalSbxBackend` cho `ade-vm`.
-4. Tier B live prompt: opt-in `ADE_LIVE_PROMPT=1 cargo test -p ade-core
-   --features integration-tests tier_b` — tốn quota, chạy tay khi cần.
+1. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
+   virtiofsd + vsock socket + user `ubuntu` + cmdline root.
+2. M4 còn lại: `agents.toml` + probe `which <bin>`; supervisors +
+   kanban-lite dispatcher 60s.
+3. M6: Open-Workspace flow (nối VmManager vào UI) + local pty +
+   `TerminalAdapter` + kit đầu.
+4. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers
 
-- None. Tier B cần user duyệt chi quota (keys đã có sẵn trong env).
+- None. Cần 1 máy có `/dev/kvm` để chạy live tests M5 lần đầu.

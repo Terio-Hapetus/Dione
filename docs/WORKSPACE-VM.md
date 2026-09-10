@@ -34,11 +34,11 @@ Missing → PullingImage → Booting → WaitingSsh → Mounting → Ready → R
 
 1. `probe`: `ls /dev/kvm` tồn tại + readable? Không → fallback `HostProvider`.
 2. `pull`: image thiếu → tải + verify checksum. Có sẵn → skip.
-3. `boot`: gọi `VmBackend::boot(cfg)` (CloudHypervisor REST / `sbx run` / Mock).
+3. `boot`: gọi `VmBackend::boot(cfg)` (CloudHypervisor REST / Mock).
 4. `wait_ssh`: poll `wait_ssh` tới timeout. Key ephemeral, không reuse.
 5. `mount`: virtiofs mount `mount_repo` vào `/workspace`. Verify `touch` 2 chiều.
 6. `ready`: tạo `.ade-worktrees/` nếu thiếu, mở Terminal tab (ssh).
-7. `stop/prune`: `sbx rm` tương đương — xóa VM + contents, worktrees đã merge thì prune branch.
+7. `stop/prune`: `vm.shutdown` + `vm.delete` — xóa VM + contents, worktrees đã merge thì prune branch.
 
 ## SSH & ports
 
@@ -58,8 +58,20 @@ Missing → PullingImage → Booting → WaitingSsh → Mounting → Ready → R
 | Backend | Khi nào dùng |
 |---|---|
 | `Mock` | CI, Xvfb, máy không KVM, test |
-| `ExternalSbx` | Đường tắt M5: có sẵn Docker+`sbx`, muốn VM thật ngay |
-| `CloudHypervisor` | Đường chính: native, virtiofs, REST API |
+| `CloudHypervisor` | Đường duy nhất (xem ADR-0005): native, virtiofs, REST API |
+
+## Live requirements (máy chạy VM thật)
+
+- KVM (`ls /dev/kvm`), binaries: `cloud-hypervisor`, `virtiofsd`,
+  `genisoimage`, `ssh`, `curl`, `sha256sum`, `ssh-keygen`.
+- Guest assets (1 trong 2 cách):
+  - `ADE_VM_KERNEL` + `ADE_VM_IMAGE` trỏ tới file local, hoặc
+  - `ADE_VM_KERNEL_URL` (+`_SHA256`) / `ADE_VM_IMAGE_URL` (+`_SHA256`)
+    để first-boot download vào `~/.local/share/ade/vm/` (có verify).
+- SSH guest qua vsock: cloud-init seed cài `socat` + `openssh-server`,
+  forward `VSOCK-LISTEN:2222 → localhost:22`; host proxy giữ port
+  127.0.0.1 ngẫu nhiên. Xem `crates/ade-vm/src/seed.rs` + `ch.rs`
+  (flag `virtiofsd`/`vsock socket` cần re-verify ở live test đầu tiên).
 
 ## Giới hạn p1 (không làm)
 

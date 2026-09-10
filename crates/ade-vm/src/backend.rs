@@ -16,8 +16,8 @@ pub enum VmError {
     Backend(String),
 }
 
-/// Replaceable VM engine. Real backends (CloudHypervisor, ExternalSbx)
-/// arrive in later slices; `MockBackend` keeps CI green without KVM.
+/// Replaceable VM engine: CloudHypervisor for real MicroVMs,
+/// Mock keeps CI green without KVM.
 pub trait VmBackend: Send {
     fn boot(&mut self, cfg: &VmConfig) -> anyhow::Result<VmHandle>;
     fn wait_ssh(&self, handle: &VmHandle) -> anyhow::Result<SshInfo>;

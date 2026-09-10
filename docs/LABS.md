@@ -25,9 +25,9 @@ cargo test -p ade-core worktree
 ## Lab 2: hello-vm (M5, cần KVM)
 
 ```bash
-cargo test -p ade-vm --lib mock_boot   # chưa KVM cũng xanh (Mock)
-# Có KVM:
-# cargo test -p ade-vm --lib ch_boot -- --nocapture
+cargo test -p ade-vm --lib   # chưa KVM cũng xanh (Mock + fakes)
+# Có KVM (xem WORKSPACE-VM.md "Live requirements"):
+# ADE_LIVE_VM=1 cargo test -p ade-vm --test live_ch -- --nocapture
 ```
 
 - Đúng: log `Booting → WaitingSsh → Mounting → Ready` <60s.

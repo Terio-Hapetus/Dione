@@ -6,7 +6,7 @@ static NEXT_KEY_DIR: AtomicU64 = AtomicU64::new(1);
 
 /// Ephemeral SSH keypair: generated fresh per boot, private key lives in
 /// a temp dir that is wiped on drop. Never reused, never copied to the VM
-/// (only the public half is injected via cloud-init / sbx setup).
+/// (only the public half is injected via cloud-init user-data).
 #[derive(Debug)]
 pub struct EphemeralKey {
     pubkey_openssh: String,
