@@ -3,7 +3,8 @@ use std::process::Command;
 
 use ade_vm::{EphemeralKey, SshInfo};
 
-use super::provider::{ExecOut, WorkspaceProvider};
+use super::provider::{ExecOut, ShellChannel, WorkspaceProvider};
+use crate::host::HostShell;
 
 /// SSH target for one guest. Built from `VmBackend::wait_ssh` output +
 /// the ephemeral key that produced the injected pubkey.
@@ -57,6 +58,8 @@ pub struct MicroVm {
     mapping: PathMapping,
     ssh_bin: PathBuf,
     connect_timeout_secs: u64,
+    /// `(guest_port, host_port)` preview forwards (`-L`, M6f).
+    forwards: Vec<(u16, u16)>,
     _key: Option<EphemeralKey>,
 }
 
@@ -67,6 +70,7 @@ impl MicroVm {
             mapping,
             ssh_bin: PathBuf::from("ssh"),
             connect_timeout_secs: 10,
+            forwards: Vec::new(),
             _key: None,
         }
     }
@@ -82,6 +86,34 @@ impl MicroVm {
     pub fn with_ssh_bin(mut self, bin: PathBuf) -> Self {
         self.ssh_bin = bin;
         self
+    }
+
+    /// Add a preview forward `host_port:localhost:guest_port` (M6f).
+    /// Applied to interactive shells; one-shot `exec` stays forward-free.
+    pub fn add_forward(&mut self, guest_port: u16, host_port: u16) {
+        self.forwards.push((guest_port, host_port));
+    }
+
+    /// Base ssh argv shared by `exec` and `shell` (options only).
+    fn base_args(&self) -> Vec<String> {
+        vec![
+            "-i".into(),
+            self.target.key_path.to_string_lossy().into_owned(),
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            format!("ConnectTimeout={}", self.connect_timeout_secs),
+            "-o".into(),
+            "StrictHostKeyChecking=no".into(),
+            "-o".into(),
+            "UserKnownHostsFile=/dev/null".into(),
+            "-p".into(),
+            self.target.port.to_string(),
+        ]
+    }
+
+    fn dest(&self) -> String {
+        format!("{}@{}", self.target.user, self.target.host)
     }
 
     /// `exec` plus secret env injection (`env K=V` prefix).
@@ -109,24 +141,11 @@ impl MicroVm {
             remote.push(' ');
             remote.push_str(&shell_quote(c));
         }
-        let dest = format!("{}@{}", self.target.user, self.target.host);
+        let mut argv = self.base_args();
+        argv.push(self.dest());
+        argv.push(remote);
         let out = Command::new(&self.ssh_bin)
-            .args([
-                "-i",
-                &self.target.key_path.to_string_lossy(),
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                &format!("ConnectTimeout={}", self.connect_timeout_secs),
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-                "-p",
-                &self.target.port.to_string(),
-                &dest,
-                &remote,
-            ])
+            .args(&argv)
             .output()
             .map_err(|e| anyhow::anyhow!("ssh spawn failed: {e:#}"))?;
         Ok(ExecOut {
@@ -148,6 +167,54 @@ impl WorkspaceProvider for MicroVm {
             port: self.target.port,
             user: self.target.user.clone(),
         })
+    }
+
+    /// Interactive shell: local pty running the ssh client (key
+    /// ephemeral, forwards attached). `cwd` must exist locally — for
+    /// virtiofs mounts the repo path is host-visible.
+    fn shell(&mut self, cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {
+        if !cwd.is_dir() {
+            anyhow::bail!("shell: cwd {} missing locally", cwd.display());
+        }
+        let mut argv = self.base_args();
+        for (guest, host) in &self.forwards {
+            argv.push("-L".into());
+            argv.push(format!("{host}:localhost:{guest}"));
+        }
+        argv.push(self.dest());
+        let prog = self.ssh_bin.to_string_lossy().into_owned();
+        Ok(Box::new(HostShell::spawn_cmd(cwd, &prog, &argv, 80, 24)?))
+    }
+}
+
+/// Preview port allocator: one `41xx` host port per forwarded guest port
+/// (`VM:3000 → host:41xx`, WORKSPACE-VM spec). Pure, no sockets.
+#[derive(Debug, Clone)]
+pub struct PreviewPorts {
+    next: u16,
+}
+
+impl PreviewPorts {
+    pub const BASE: u16 = 4100;
+    pub const CAP: u16 = 4199;
+
+    pub fn new() -> Self {
+        Self { next: Self::BASE }
+    }
+
+    pub fn alloc(&mut self) -> anyhow::Result<u16> {
+        if self.next > Self::CAP {
+            anyhow::bail!("preview ports exhausted ({}-{})", Self::BASE, Self::CAP);
+        }
+        let p = self.next;
+        self.next += 1;
+        Ok(p)
+    }
+}
+
+impl Default for PreviewPorts {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -286,5 +353,68 @@ mod tests {
         let out = vm.exec(&["false"], Path::new("/")).unwrap();
         assert!(!out.success());
         assert_eq!(out.code, Some(3));
+    }
+
+    /// Interactive fake `ssh`: records argv, then becomes a local shell.
+    fn interactive_ssh() -> FakeSsh {
+        let fake = FakeSsh::new("", 0);
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" > \"{}/args.txt\"\nexec sh\n",
+            fake._dir.display(),
+        );
+        std::fs::write(&fake.bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&fake.bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fake
+    }
+
+    fn read_until(sh: &mut dyn ShellChannel, needle: &str) -> Vec<u8> {
+        let mut acc = Vec::new();
+        for _ in 0..100 {
+            acc.extend(sh.read_available());
+            if String::from_utf8_lossy(&acc).contains(needle) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        acc
+    }
+
+    #[test]
+    fn shell_runs_ssh_under_pty_with_forwards() {
+        let fake = interactive_ssh();
+        let mut vm = MicroVm::new(target(), PathMapping::Identity).with_ssh_bin(fake.bin.clone());
+        vm.add_forward(3000, 4105);
+        let mut sh = vm.shell(Path::new("/tmp")).unwrap();
+        sh.write_bytes(b"echo via-ssh\n").unwrap();
+        let out = read_until(&mut *sh, "via-ssh");
+        assert!(String::from_utf8_lossy(&out).contains("via-ssh"));
+        let argv = fake.args();
+        assert!(argv.contains("-i /tmp/id"), "{argv}");
+        assert!(argv.contains("-p 4222"), "{argv}");
+        assert!(argv.contains("-L 4105:localhost:3000"), "{argv}");
+        assert!(argv.contains("vm@127.0.0.1"), "{argv}");
+        sh.kill().unwrap();
+    }
+
+    #[test]
+    fn shell_rejects_missing_local_cwd() {
+        let fake = interactive_ssh();
+        let mut vm = MicroVm::new(target(), PathMapping::Identity).with_ssh_bin(fake.bin.clone());
+        assert!(vm.shell(Path::new("/nonexistent-ade-xyz")).is_err());
+    }
+
+    #[test]
+    fn preview_ports_allocate_in_range_and_exhaust() {
+        let mut ports = PreviewPorts::new();
+        assert_eq!(ports.alloc().unwrap(), 4100);
+        assert_eq!(ports.alloc().unwrap(), 4101);
+        for _ in 0..98 {
+            ports.alloc().unwrap();
+        }
+        assert!(ports.alloc().is_err());
     }
 }

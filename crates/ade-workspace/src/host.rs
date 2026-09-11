@@ -56,6 +56,17 @@ impl HostShell {
     }
 
     pub fn spawn_sized(cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<Self> {
+        Self::spawn_cmd(cwd, "sh", &[], cols, rows)
+    }
+
+    /// Spawn an arbitrary program under the pty (M6f: the ssh client).
+    pub fn spawn_cmd(
+        cwd: &Path,
+        prog: &str,
+        args: &[String],
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<Self> {
         let pty = portable_pty::native_pty_system();
         let pair = pty.openpty(portable_pty::PtySize {
             rows,
@@ -63,8 +74,9 @@ impl HostShell {
             pixel_width: 0,
             pixel_height: 0,
         })?;
-        let mut cmd = portable_pty::CommandBuilder::new("sh");
+        let mut cmd = portable_pty::CommandBuilder::new(prog);
         cmd.cwd(cwd);
+        cmd.args(args);
         let child = pair.slave.spawn_command(cmd)?;
         let mut reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
