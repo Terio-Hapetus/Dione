@@ -101,8 +101,15 @@ impl FleetInbox {
         }
     }
 
+    /// Is a sweeper installed? Lets drivers install exactly once without
+    /// resetting tracked state on every task open.
+    pub fn has_sweeper(&self) -> bool {
+        self.sweeper.lock().map(|sw| sw.is_some()).unwrap_or(false)
+    }
+
     /// Hook A body: drain tasks after reconcile, sweep ~every 60s.
-    pub(crate) fn poll_fleet(&self, store: &mut Store, tick: u64) {
+    /// Public so drivers/tests can drive the fleet without a server.
+    pub fn poll_fleet(&self, store: &mut Store, tick: u64) {
         if let Ok(mut tasks) = self.tasks.lock() {
             drain_fleet(&mut tasks, store);
         }
@@ -119,21 +126,23 @@ impl FleetInbox {
     }
 
     /// Bind a fresh session to tasks owning its scope + track them.
-    pub(crate) fn bind_new(&self, scope: &str, session_id: &str) {
+    /// Public for driver-level flows (the runtime calls this on create).
+    pub fn bind_new(&self, scope: &str, session_id: &str) {
         if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
             bind_new_session(&mut tasks, &mut sw, scope, session_id);
         }
     }
 
     /// Forget retired sessions before `retire_session` drops the map.
-    pub(crate) fn release(&self, store: &Store, sids: &[String]) {
+    /// Public for driver-level flows (the runtime calls this on drop).
+    pub fn release(&self, store: &Store, sids: &[String]) {
         if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
             release_sessions(&mut tasks, &mut sw, store, sids);
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn task_count(&self) -> usize {
+    /// Number of registered tasks (drivers/tests).
+    pub fn task_count(&self) -> usize {
         self.tasks.lock().map(|t| t.len()).unwrap_or(0)
     }
 }

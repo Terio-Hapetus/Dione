@@ -62,6 +62,11 @@ impl RuntimeHandle {
     pub fn register_sweeper(&self, sweeper: Box<dyn fleet::TaskSweeper>) {
         self.inbox.register_sweeper(sweeper);
     }
+
+    /// The shared fleet registry (driver entry point for task opens).
+    pub fn fleet(&self) -> &FleetInbox {
+        &self.inbox
+    }
 }
 
 pub fn spawn(config: AppConfig) -> RuntimeHandle {

@@ -8,6 +8,7 @@
 //! (Task + provider face); neither points back here.
 
 pub mod agent;
+pub mod driver;
 pub mod supervisor;
 pub mod sweeper;
 
@@ -15,5 +16,6 @@ pub use agent::{
     AgentBackend, AgentEvent, AgentStatus, MockAgent, OpencodeAdapter, agent_status_of,
     apply_agent_event,
 };
+pub use driver::open_host_task;
 pub use supervisor::Supervisor;
 pub use sweeper::FleetSweeper;
