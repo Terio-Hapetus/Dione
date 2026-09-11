@@ -10,6 +10,7 @@
 //! in `handlers.rs`, wire verbs in `io.rs`. Public paths unchanged.
 
 pub mod commands;
+pub mod fleet;
 pub mod handlers;
 pub mod io;
 pub mod reconcile;
@@ -109,6 +110,11 @@ pub(crate) struct LoopState {
     /// Scope ("" = root, else worktree slug) -> directory-scoped client.
     pub(crate) clients: BTreeMap<String, OpencodeClient>,
     pub(crate) pumped: BTreeSet<String>,
+    /// M4 fleet: supervised tasks drain after reconcile, before publish.
+    /// Empty until the supervisor wiring (slice 2+) registers tasks.
+    pub(crate) fleet: Vec<Box<dyn fleet::SupervisedTask>>,
+    /// M4 kanban-lite sweeper. None = no triage yet.
+    pub(crate) sweeper: Option<Box<dyn fleet::TaskSweeper>>,
 }
 
 impl LoopState {
@@ -120,6 +126,8 @@ impl LoopState {
             repo: PathBuf::from("."),
             clients: BTreeMap::new(),
             pumped: BTreeSet::new(),
+            fleet: Vec::new(),
+            sweeper: None,
         }
     }
 

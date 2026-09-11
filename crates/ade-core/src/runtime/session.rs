@@ -5,6 +5,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::LoopState;
 use super::commands::Command;
+use super::fleet::{apply_sweep, drain_fleet, sweep_due};
 use super::handlers::handle_command;
 use super::reconcile::{fetch_providers, fetch_todos, reconcile_all_sessions, reconcile_messages};
 use super::{ROOT_SCOPE, publish, spawn_pump};
@@ -68,6 +69,14 @@ pub(crate) async fn poll_once(st: &mut LoopState, tick: u64) {
         if let Some(client) = root {
             fetch_providers(st, &client).await;
         }
+    }
+    // M4 fleet hook A: after reconcile, before publish. Empty fleet and
+    // no sweeper keep this a no-op until slices 2+ register tasks.
+    drain_fleet(&mut st.fleet, &mut st.store);
+    if sweep_due(tick)
+        && let Some(sw) = &st.sweeper
+    {
+        apply_sweep(&mut st.store, &sw.sweep());
     }
 }
 

@@ -265,6 +265,8 @@ mod tests {
             repo: PathBuf::from("."),
             clients: BTreeMap::new(),
             pumped: BTreeSet::new(),
+            fleet: Vec::new(),
+            sweeper: None,
         }
     }
 
