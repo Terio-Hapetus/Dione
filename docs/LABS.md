@@ -34,7 +34,10 @@ cargo test -p ade-vm --lib   # chưa KVM cũng xanh (Mock + fakes)
 - Timeout SSH: kiểm tra image đã pull? key ephemeral đã bơm? Xem
   `WORKSPACE-VM.md#boot-sequence` bước 3–4.
 
-## Lab 3: mount thấy file 2 chiều
+## Lab 3: mount thấy file 2 chiều (cần KVM + M6 SSH tab — hiện BLOCKED)
+
+> SSH tab vào VM là việc M6 (`ROADMAP.md` M6 còn `[ ]`). Tạm thời thay
+> bằng live test gate env ở Lab 2; Lab 3 tay chỉ chạy được sau M6.
 
 Trong VM (qua SSH tab):
 
@@ -55,13 +58,17 @@ ls <repo>/hello-from-vm
 ## Lab 4: agent mới (không VM cũng chạy được)
 
 ```bash
-which claude || which codex || which opencode
+mkdir -p ~/.config/ade && cp agents.toml.example ~/.config/ade/agents.toml
+which opencode   # + which claude / codex nếu đã cài
 cat ~/.config/ade/agents.toml
+cargo test -p ade-workspace agents && cargo test -p ade-ui top_bar
 ```
 
-- Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh.
-- Thêm agent mới: theo `AGENT-ANY.md#thêm-agent-mới-trong-3-bước`,
-  rồi fan-out 1 prompt → 2 tasks → diff cả 2 đều hiện.
+- Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh
+  (`●`), thiếu binary → tick đỏ (`○`); chưa có file → picker trống.
+- Nửa sau của lab (fan-out 1 prompt → 2 tasks → diff cả 2) còn BLOCKED:
+  cần driver khởi tạo `Supervisor` trong production (M6), hiện chỉ có
+  seam + tests (`Supervisor`/`FleetSweeper` chưa có callsite runtime).
 
 ## Lab 5: fan-out + merge (Host, M2)
 

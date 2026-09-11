@@ -1,0 +1,27 @@
+# ADE agent registry example (M4b, Lab 4).
+#
+# Copy to ~/.config/ade/agents.toml, then uncomment the agents you use:
+#   mkdir -p ~/.config/ade && cp agents.toml.example ~/.config/ade/agents.toml
+#
+# Each entry: the binary ADE probes on PATH (green/red tick in the Agent
+# picker) + the CLI flag carrying the prompt + the kit script installed
+# at VM boot (M6; see kits/).
+#
+# A missing file is fine — ADE runs with an empty registry.
+
+# opencode ships with this repo's workflow (opencode serve backend).
+[agents.opencode]
+bin = "opencode"
+prompt_arg = "-p"
+kit = "kits/opencode.sh"
+
+# Uncomment what you have installed (`which <bin>` must succeed):
+# [agents.claude]
+# bin = "claude"
+# prompt_arg = "-p"
+# kit = "kits/claude.sh"
+#
+# [agents.codex]
+# bin = "codex"
+# prompt_arg = "exec"
+# kit = "kits/codex.sh"

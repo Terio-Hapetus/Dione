@@ -2,24 +2,28 @@
 
 ## Current milestone
 
-M4 DONE (structs + tests; runtime sweep wiring pending). M5 lõi DONE
-(CH-only, live-gated). Next: M6 Terminal.
+M4 DONE (seam + wiring + tests; production driver pending → M6).
+M5 lõi DONE (CH-only, live-gated). Next: M6 Terminal.
 
 ## Last commit (đã verify)
 
-- Pushed 30 commits M3+M4a+M5 to `origin/main` (`d01056f..4957895`);
-  pre-push gates xanh (check + clippy 0 + fmt + 78 tests). Lưu ý: env
-  `GH_TOKEN` invalid che lấp credential `gh` hợp lệ — push bằng
-  `env -u GH_TOKEN git push`.
-- `d380c17` feat(m4b): `agents.rs` registry + PATH probe (4 tests)
-- `38066cc` feat(m4c): `Supervisor` (backend+workspace/task, tick drain,
-  `bind_session` seam, `AgentBackend` default method) — 3 tests
-- `32f9ff0` feat(m4d): kanban-lite `Dispatcher` 60s (Reclaim overdue/stale,
-  Blocked sau 2 errors) — 4 tests
-- `7ba8f89` feat(m4e): Agent picker ticks ở top bar (`●/○`, registry rỗng
-  render nothing) + `refresh_agents` hook — 2 tests
+- Wiring runtime (hook A sau reconcile, trước publish), fleet rỗng =
+  no-op cho tới khi driver M6 đăng ký tasks:
+  - `fleet.rs` seam: `SupervisedTask` (+`slug`/`unbind`) + `TaskSweeper`
+    (task-based) + `sweep_due`/`drain_fleet`/`apply_sweep`/`bind_new_session`
+    /`release_sessions` — `LoopState` thêm `fleet`/`sweeper`, không dep ngược
+  - `create_session_in` bind/track theo slug; `drop_scope` unbind/untrack
+    trước khi retire
+  - `Supervisor: SupervisedTask` (+`slug`); `AgentBackend::{collect,
+    unbind_session}` (adapter override: `collect_new` + reverse-lookup)
+  - `FleetSweeper` adapts `Dispatcher` (vá bug `Default` zero-interval);
+    consumer Reclaim/Blocked → error entries
+  - Lifecycle: `retire` + `SessionDeleted` drop transcripts/costs/pending +
+    `recompute_totals` (giới hạn: msg supervisor dưới task id khác vẫn orphan)
+  - UI: slow-refresh agents/KVM mỗi ~60 polls; lab-ready: `agents.toml.example`
+    + `kits/opencode.sh` skeleton, Lab 3/4 ghi rõ BLOCKED tới đâu
 - Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test --workspace` 91 passed (0 failed).
+  sạch + `cargo test --workspace` 103 passed (0 failed).
 
 ## Trước đó (M5, đã verify)
 
@@ -52,8 +56,8 @@ M4 DONE (structs + tests; runtime sweep wiring pending). M5 lõi DONE
 
 1. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root.
-2. M4 còn lại: nối `Supervisor::tick` + `Dispatcher::sweep` vào runtime
-   (hook A: sau reconcile, trước publish) — structs + tests đã xong.
+2. M4 còn lại: driver production đăng ký `Supervisor`/`FleetSweeper` vào
+   runtime (M6: Open-Workspace flow tạo tasks thật) — seam + wiring xong.
 3. M6: Open-Workspace flow (nối VmManager vào UI) + local pty +
    `TerminalAdapter` + kit đầu.
 4. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
