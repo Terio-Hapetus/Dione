@@ -5,10 +5,9 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::LoopState;
 use super::commands::Command;
-use super::fleet::{apply_sweep, drain_fleet, sweep_due};
 use super::handlers::handle_command;
 use super::reconcile::{fetch_providers, fetch_todos, reconcile_all_sessions, reconcile_messages};
-use super::{ROOT_SCOPE, publish, spawn_pump};
+use super::{FleetInbox, ROOT_SCOPE, publish, spawn_pump};
 use crate::config::AppConfig;
 use crate::server::AdeServer;
 use crate::worktree::{self, WorktreeRecord};
@@ -18,6 +17,7 @@ pub(crate) async fn run_session(
     server: AdeServer,
     rx: &mut UnboundedReceiver<Command>,
     slot: &Arc<RwLock<Arc<crate::state::Store>>>,
+    inbox: Arc<FleetInbox>,
 ) {
     let client = server.client.clone();
     let mut st = LoopState::load(slot);
@@ -42,21 +42,21 @@ pub(crate) async fn run_session(
         tokio::select! {
             cmd = rx.recv() => {
                 let Some(cmd) = cmd else { return; }; // UI gone: end session loop.
-                if !handle_command(&mut st, slot, cmd).await {
+                if !handle_command(&mut st, slot, cmd, &inbox).await {
                     return;
                 }
                 publish(slot, &st);
             }
             _ = poll.tick() => {
                 tick += 1;
-                poll_once(&mut st, tick).await;
+                poll_once(&mut st, tick, &inbox).await;
                 publish(slot, &st);
             }
         }
     }
 }
 
-pub(crate) async fn poll_once(st: &mut LoopState, tick: u64) {
+pub(crate) async fn poll_once(st: &mut LoopState, tick: u64, inbox: &FleetInbox) {
     reconcile_all_sessions(st).await;
     let active = st.store.active_session.clone();
     if let Some(sid) = active {
@@ -70,14 +70,10 @@ pub(crate) async fn poll_once(st: &mut LoopState, tick: u64) {
             fetch_providers(st, &client).await;
         }
     }
-    // M4 fleet hook A: after reconcile, before publish. Empty fleet and
-    // no sweeper keep this a no-op until slices 2+ register tasks.
-    drain_fleet(&mut st.fleet, &mut st.store);
-    if sweep_due(tick)
-        && let Some(sw) = &st.sweeper
-    {
-        apply_sweep(&mut st.store, &sw.sweep());
-    }
+    // M4 fleet hook A: after reconcile, before publish. Empty inbox keeps
+    // this a no-op until the M6 driver registers tasks. The inbox (not
+    // LoopState) owns tasks so registration survives server reconnects.
+    inbox.poll_fleet(&mut st.store, tick);
 }
 
 pub(crate) async fn bootstrap(st: &mut LoopState) {

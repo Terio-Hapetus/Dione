@@ -18,6 +18,7 @@ pub mod session;
 pub mod sse;
 
 pub use commands::{Command, PermissionResponse};
+pub use fleet::FleetInbox;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -39,6 +40,7 @@ pub(crate) const ROOT_SCOPE: &str = "";
 pub struct RuntimeHandle {
     tx: UnboundedSender<Command>,
     slot: Arc<RwLock<Arc<Store>>>,
+    inbox: Arc<FleetInbox>,
 }
 
 impl RuntimeHandle {
@@ -49,14 +51,27 @@ impl RuntimeHandle {
     pub fn snapshot(&self) -> Arc<Store> {
         self.slot.read().map(|g| Arc::clone(&g)).unwrap_or_default()
     }
+
+    /// Register a supervised task (M6 driver: Open-Workspace flow).
+    /// Survives server reconnects; drained every poll tick (hook A).
+    pub fn register_task(&self, task: Box<dyn fleet::SupervisedTask>) {
+        self.inbox.register_task(task);
+    }
+
+    /// Install (or replace) the kanban-lite sweeper.
+    pub fn register_sweeper(&self, sweeper: Box<dyn fleet::TaskSweeper>) {
+        self.inbox.register_sweeper(sweeper);
+    }
 }
 
 pub fn spawn(config: AppConfig) -> RuntimeHandle {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let slot: Arc<RwLock<Arc<Store>>> = Arc::new(RwLock::new(Arc::new(Store::default())));
+    let inbox = Arc::new(FleetInbox::new());
     let handle = RuntimeHandle {
         tx,
         slot: Arc::clone(&slot),
+        inbox: Arc::clone(&inbox),
     };
 
     std::thread::spawn(move || {
@@ -65,7 +80,7 @@ pub fn spawn(config: AppConfig) -> RuntimeHandle {
             .enable_all()
             .build()
             .expect("tokio runtime for ADE");
-        rt.block_on(outer_loop(config, rx, slot));
+        rt.block_on(outer_loop(config, rx, slot, inbox));
     });
 
     handle
@@ -75,6 +90,7 @@ async fn outer_loop(
     config: AppConfig,
     mut rx: UnboundedReceiver<Command>,
     slot: Arc<RwLock<Arc<Store>>>,
+    inbox: Arc<FleetInbox>,
 ) {
     loop {
         match AdeServer::start(&config).await {
@@ -84,7 +100,7 @@ async fn outer_loop(
                     st.store.conn = ConnState::Connected;
                     publish(&slot, &st);
                 }
-                session::run_session(&config, server, &mut rx, &slot).await;
+                session::run_session(&config, server, &mut rx, &slot, Arc::clone(&inbox)).await;
                 // run_session only returns on fatal stream/setup failure: retry.
                 let mut st = LoopState::load(&slot);
                 st.store.conn = ConnState::Disconnected;
@@ -110,11 +126,6 @@ pub(crate) struct LoopState {
     /// Scope ("" = root, else worktree slug) -> directory-scoped client.
     pub(crate) clients: BTreeMap<String, OpencodeClient>,
     pub(crate) pumped: BTreeSet<String>,
-    /// M4 fleet: supervised tasks drain after reconcile, before publish.
-    /// Empty until the supervisor wiring (slice 2+) registers tasks.
-    pub(crate) fleet: Vec<Box<dyn fleet::SupervisedTask>>,
-    /// M4 kanban-lite sweeper. None = no triage yet.
-    pub(crate) sweeper: Option<Box<dyn fleet::TaskSweeper>>,
 }
 
 impl LoopState {
@@ -126,8 +137,6 @@ impl LoopState {
             repo: PathBuf::from("."),
             clients: BTreeMap::new(),
             pumped: BTreeSet::new(),
-            fleet: Vec::new(),
-            sweeper: None,
         }
     }
 

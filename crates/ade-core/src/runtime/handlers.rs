@@ -4,6 +4,7 @@ use opencode_codes::protocol_generated::types::SessionStatus;
 
 use super::LoopState;
 use super::commands::Command;
+use super::fleet::FleetInbox;
 use super::io::{create_session_in, fetch_diff, prompt_session, reply_permission};
 use super::reconcile::{fetch_todos, reconcile_messages};
 use super::{ROOT_SCOPE, ensure_client};
@@ -16,6 +17,7 @@ pub(crate) async fn handle_command(
     st: &mut LoopState,
     slot: &Arc<RwLock<Arc<crate::state::Store>>>,
     cmd: Command,
+    inbox: &FleetInbox,
 ) -> bool {
     match cmd {
         Command::CreateSession { title } => {
@@ -25,13 +27,13 @@ pub(crate) async fn handle_command(
                     .store
                     .push_error(format!("worktree client failed: {e:#}")),
                 Ok(client) => {
-                    create_session_in(st, &client, &scope, title).await;
+                    create_session_in(st, &client, &scope, title, inbox).await;
                 }
             }
         }
-        Command::CreateWorktree { slug } => create_worktree(st, slot, slug).await,
-        Command::RemoveWorktree { slug } => remove_worktree(st, &slug).await,
-        Command::MergeWorktree { slug } => merge_worktree(st, &slug).await,
+        Command::CreateWorktree { slug } => create_worktree(st, slot, slug, inbox).await,
+        Command::RemoveWorktree { slug } => remove_worktree(st, &slug, inbox).await,
+        Command::MergeWorktree { slug } => merge_worktree(st, &slug, inbox).await,
         Command::SelectWorktree { slug } => select_worktree(st, &slug).await,
         Command::SelectSession { id } => {
             if st.store.sessions.contains_key(&id) {
@@ -114,6 +116,7 @@ pub(crate) async fn create_worktree(
     st: &mut LoopState,
     slot: &Arc<RwLock<Arc<crate::state::Store>>>,
     slug: String,
+    inbox: &FleetInbox,
 ) {
     let record = match worktree::create(&st.repo, &slug).await {
         Ok(r) => r,
@@ -131,16 +134,16 @@ pub(crate) async fn create_worktree(
             .store
             .push_error(format!("worktree client failed: {e:#}")),
         Ok(client) => {
-            create_session_in(st, &client, &slug, format!("work in {slug}")).await;
+            create_session_in(st, &client, &slug, format!("work in {slug}"), inbox).await;
         }
     }
 }
 
 /// Forget a worktree's sessions/clients/records after its git dir is gone
 /// (removed or merged). Shared by remove and merge paths.
-pub(crate) fn drop_scope(st: &mut LoopState, slug: &str, sids: &[String]) {
+pub(crate) fn drop_scope(st: &mut LoopState, slug: &str, sids: &[String], inbox: &FleetInbox) {
     // M4 fleet: unbind + untrack before retire drops the session_task map.
-    super::fleet::release_sessions(&mut st.fleet, &mut st.sweeper, &st.store, sids);
+    inbox.release(&st.store, sids);
     for sid in sids {
         st.store.retire_session(sid);
     }
@@ -161,7 +164,7 @@ pub(crate) fn scoped_sessions(st: &LoopState, slug: &str) -> Vec<String> {
         .collect()
 }
 
-pub(crate) async fn remove_worktree(st: &mut LoopState, slug: &str) {
+pub(crate) async fn remove_worktree(st: &mut LoopState, slug: &str, inbox: &FleetInbox) {
     // Abort + retire every session scoped to this worktree.
     let sids = scoped_sessions(st, slug);
     for sid in &sids {
@@ -178,15 +181,15 @@ pub(crate) async fn remove_worktree(st: &mut LoopState, slug: &str) {
         st.store
             .push_error(format!("remove worktree failed: {e:#}"));
     }
-    drop_scope(st, slug, &sids);
+    drop_scope(st, slug, &sids, inbox);
 }
 
-pub(crate) async fn merge_worktree(st: &mut LoopState, slug: &str) {
+pub(crate) async fn merge_worktree(st: &mut LoopState, slug: &str, inbox: &FleetInbox) {
     let sids = scoped_sessions(st, slug);
     match worktree::merge_winner(&st.repo, slug).await {
         Ok(summary) => {
             tracing::info!("merged {slug}: {summary}");
-            drop_scope(st, slug, &sids);
+            drop_scope(st, slug, &sids, inbox);
             let _ = worktree::prune(&st.repo).await;
         }
         Err(e) => {
@@ -267,8 +270,6 @@ mod tests {
             repo: PathBuf::from("."),
             clients: BTreeMap::new(),
             pumped: BTreeSet::new(),
-            fleet: Vec::new(),
-            sweeper: None,
         }
     }
 
@@ -279,7 +280,12 @@ mod tests {
         st.store.session_scope.insert("s2".into(), "wt-a".into());
         st.store.active_worktree = Some("wt-a".into());
         st.pumped.insert("wt-a".into());
-        drop_scope(&mut st, "wt-a", &["s1".into(), "s2".into()]);
+        drop_scope(
+            &mut st,
+            "wt-a",
+            &["s1".into(), "s2".into()],
+            &FleetInbox::new(),
+        );
         assert!(st.store.retired_sessions.contains("s1"));
         assert!(st.store.retired_sessions.contains("s2"));
         assert!(!st.store.session_scope.contains_key("s1"));

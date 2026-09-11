@@ -4,6 +4,12 @@
 //! `ade-workspace` (`Dispatcher`) plug in concrete hooks behind these
 //! traits. That keeps the one-way chain `agent → workspace → core`:
 //! nothing here imports either crate.
+//!
+//! Registration survives server reconnects: tasks live in the shared
+//! [`FleetInbox`] (owned by `RuntimeHandle`), not in the per-session
+//! `LoopState` which is rebuilt on every reconnect.
+
+use std::sync::Mutex;
 
 use crate::state::Store;
 use crate::transcript::TaskId;
@@ -44,6 +50,92 @@ pub trait TaskSweeper: Send {
     fn untrack_task(&mut self, task: &TaskId);
     fn note_task_error(&mut self, task: &TaskId);
     fn sweep(&self) -> Vec<SweepAction>;
+}
+
+/// Shared fleet registry. Locking is per-tick and never held across
+/// `.await`: supervised `tick`s must stay non-blocking (hook A contract).
+/// A poisoned lock skips one round rather than crashing the loop.
+pub struct FleetInbox {
+    tasks: Mutex<Vec<Box<dyn SupervisedTask>>>,
+    sweeper: Mutex<Option<Box<dyn TaskSweeper>>>,
+}
+
+impl std::fmt::Debug for FleetInbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tasks = self.tasks.lock().map(|t| t.len()).unwrap_or(0);
+        let sweeping = self.sweeper.lock().map(|s| s.is_some()).unwrap_or(false);
+        f.debug_struct("FleetInbox")
+            .field("tasks", &tasks)
+            .field("sweeper", &sweeping)
+            .finish()
+    }
+}
+
+// `Box<dyn SupervisedTask>` is `Send` but not `Debug`; manual impl keeps
+// `FleetInbox` printable for logs without forcing `Debug` on backends.
+impl std::fmt::Debug for dyn SupervisedTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SupervisedTask({})", self.task_id())
+    }
+}
+
+impl FleetInbox {
+    pub fn new() -> Self {
+        Self {
+            tasks: Mutex::new(Vec::new()),
+            sweeper: Mutex::new(None),
+        }
+    }
+
+    /// Register a supervised task (driver: M6 Open-Workspace flow).
+    pub fn register_task(&self, task: Box<dyn SupervisedTask>) {
+        if let Ok(mut tasks) = self.tasks.lock() {
+            tasks.push(task);
+        }
+    }
+
+    /// Install (or replace) the kanban-lite sweeper.
+    pub fn register_sweeper(&self, sweeper: Box<dyn TaskSweeper>) {
+        if let Ok(mut sw) = self.sweeper.lock() {
+            *sw = Some(sweeper);
+        }
+    }
+
+    /// Hook A body: drain tasks after reconcile, sweep ~every 60s.
+    pub(crate) fn poll_fleet(&self, store: &mut Store, tick: u64) {
+        if let Ok(mut tasks) = self.tasks.lock() {
+            drain_fleet(&mut tasks, store);
+        }
+        if sweep_due(tick) {
+            let actions = self
+                .sweeper
+                .lock()
+                .ok()
+                .and_then(|sw| sw.as_ref().map(|sw| sw.sweep()));
+            if let Some(actions) = actions {
+                apply_sweep(store, &actions);
+            }
+        }
+    }
+
+    /// Bind a fresh session to tasks owning its scope + track them.
+    pub(crate) fn bind_new(&self, scope: &str, session_id: &str) {
+        if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
+            bind_new_session(&mut tasks, &mut sw, scope, session_id);
+        }
+    }
+
+    /// Forget retired sessions before `retire_session` drops the map.
+    pub(crate) fn release(&self, store: &Store, sids: &[String]) {
+        if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
+            release_sessions(&mut tasks, &mut sw, store, sids);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn task_count(&self) -> usize {
+        self.tasks.lock().map(|t| t.len()).unwrap_or(0)
+    }
 }
 
 /// Poll ticks per sweep: 60s sweep over a 2s poll (matches the providers
@@ -305,5 +397,52 @@ mod tests {
                 "unbind:nope".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn inbox_registers_drains_and_sweeps() {
+        let inbox = FleetInbox::new();
+        assert_eq!(inbox.task_count(), 0);
+        let mut store = Store::default();
+        // Empty inbox polls are silent no-ops.
+        inbox.poll_fleet(&mut store, 30);
+        assert!(store.transcripts.is_empty() && store.errors.is_empty());
+
+        inbox.register_task(Box::new(StubTask::new()));
+        assert_eq!(inbox.task_count(), 1);
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(store.transcripts.len(), 1);
+
+        // Sweep path: stub action surfaces as an error entry on tick 30.
+        let id = TaskId::new();
+        inbox.register_sweeper(Box::new(StubSweeper {
+            actions: vec![SweepAction::Blocked(id)],
+        }));
+        inbox.poll_fleet(&mut store, 30);
+        assert_eq!(store.errors.len(), 1);
+        // Off-cadence ticks skip the sweeper.
+        inbox.poll_fleet(&mut store, 31);
+        assert_eq!(store.errors.len(), 1);
+    }
+
+    #[test]
+    fn inbox_binds_and_releases_by_scope() {
+        let inbox = FleetInbox::new();
+        let log: Arc<Mutex<Vec<String>>> = Default::default();
+        // Logged.tick is a no-op; register a ticker separately for drain.
+        inbox.register_task(Box::new(Logged {
+            id: TaskId::new(),
+            owned_slug: Some("wt-a".into()),
+            log: Arc::clone(&log),
+        }));
+        let mut store = Store::default();
+        store.task_for_session("s1");
+        inbox.bind_new("wt-a", "s1");
+        inbox.bind_new("", "s-root");
+        inbox.release(&store, &["s1".to_string()]);
+        let got = log.lock().unwrap().clone();
+        assert!(got.contains(&"bind:s1".to_string()));
+        assert!(!got.iter().any(|l| l == "bind:s-root"));
+        assert!(got.contains(&"unbind:s1".to_string()));
     }
 }
