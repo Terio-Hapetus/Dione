@@ -66,9 +66,14 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 
 ## M6 — Terminal modern (Warp-like + SSH attach)
 
-- [ ] Local pty tab + scrollback/search
-- [ ] SSH attach (key ephemeral) + port-forward preview `VM:3000 → host:41xx`
-- [ ] `TerminalAdapter` (`portable-pty`) + kit đầu `kits/opencode.sh`
+- [x] Local pty tab + scrollback/search (Host: `ShellChannel`/`HostShell`,
+      terminal tab viewer + input + filter; Xvfb smoke sạch)
+- [x] `MicroVm::shell` (ssh dưới pty + `-L` forwards) + `PreviewPorts`
+      `4100-4199` (seam + fake-ssh tests; live attach chờ máy KVM)
+- [x] `TerminalAdapter` (`portable-pty`) + kit đầu `kits/opencode.sh`
+      (pin/verify + fake-guest tests; `Working` heuristic + `mark_done`)
+- [ ] Còn lại: Open-Workspace VM-thread wiring (`VmManager` → UI,
+      `set_vm_state`/banner hết dead, SSH tab vào guest) + live KVM
 
 ## M7 — Fleet reliability (học Hermes kanban)
 

@@ -3,27 +3,23 @@
 ## Current milestone
 
 M4 DONE (seam + wiring + tests; production driver pending → M6).
-M5 lõi DONE (CH-only, live-gated). Next: M6 Terminal.
+M5 lõi DONE (CH-only, live-gated).
+M6 Terminal Host-only DONE (driver + pty + adapter + kit + ssh-shell).
+Next: M6 VM-thread wiring + live KVM, rồi M7.
 
 ## Last commit (đã verify)
 
-- Wiring runtime (hook A sau reconcile, trước publish), fleet rỗng =
-  no-op cho tới khi driver M6 đăng ký tasks:
-  - `fleet.rs` seam: `SupervisedTask` (+`slug`/`unbind`) + `TaskSweeper`
-    (task-based) + `sweep_due`/`drain_fleet`/`apply_sweep`/`bind_new_session`
-    /`release_sessions` — `LoopState` thêm `fleet`/`sweeper`, không dep ngược
-  - `create_session_in` bind/track theo slug; `drop_scope` unbind/untrack
-    trước khi retire
-  - `Supervisor: SupervisedTask` (+`slug`); `AgentBackend::{collect,
-    unbind_session}` (adapter override: `collect_new` + reverse-lookup)
-  - `FleetSweeper` adapts `Dispatcher` (vá bug `Default` zero-interval);
-    consumer Reclaim/Blocked → error entries
-  - Lifecycle: `retire` + `SessionDeleted` drop transcripts/costs/pending +
-    `recompute_totals` (giới hạn: msg supervisor dưới task id khác vẫn orphan)
-  - UI: slow-refresh agents/KVM mỗi ~60 polls; lab-ready: `agents.toml.example`
-    + `kits/opencode.sh` skeleton, Lab 3/4 ghi rõ BLOCKED tới đâu
+- M6 Host-only (không KVM vẫn xanh; phần VM-thread + live còn lại):
+  - `FleetInbox` registration seam (sống sót reconnect) + `open_host_task`
+    driver + Lab 4 fan-out Host (2 tasks mock → transcripts)
+  - `ShellChannel` + `HostShell` (`portable-pty` 0.9) + terminal tab
+    (scrollback viewer + input + search filter), Xvfb smoke sạch
+  - `TerminalAdapter` (heuristic Working/Done + `mark_done`, transcript
+    strip ANSI) + kit opencode thật (pin/verify, fake-guest tests)
+  - `MicroVm::shell` (ssh dưới pty + `-L` forwards) + `PreviewPorts`
+    allocator `4100-4199`
 - Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test --workspace` 103 passed (0 failed).
+  sạch + `cargo test --workspace` 126 passed (0 failed).
 
 ## Trước đó (M5, đã verify)
 
@@ -55,12 +51,12 @@ M5 lõi DONE (CH-only, live-gated). Next: M6 Terminal.
 ## Next up
 
 1. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
-   virtiofsd + vsock socket + user `ubuntu` + cmdline root.
-2. M4 còn lại: driver production đăng ký `Supervisor`/`FleetSweeper` vào
-   runtime (M6: Open-Workspace flow tạo tasks thật) — seam + wiring xong.
-3. M6: Open-Workspace flow (nối VmManager vào UI) + local pty +
-   `TerminalAdapter` + kit đầu.
-4. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
+   virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
+   `ADE_LIVE_KIT=1` khi có).
+2. M6 còn lại: Open-Workspace VM-thread wiring (nối `VmManager` vào UI:
+   `set_vm_state`/banner hết dead, SSH tab vào guest qua `MicroVm::shell`,
+   preview ports) — seam + Host path đã xong.
+3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers
 
