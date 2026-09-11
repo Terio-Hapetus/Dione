@@ -11,6 +11,7 @@ pub mod agent;
 pub mod driver;
 pub mod supervisor;
 pub mod sweeper;
+pub mod terminal;
 
 pub use agent::{
     AgentBackend, AgentEvent, AgentStatus, MockAgent, OpencodeAdapter, agent_status_of,
@@ -19,3 +20,4 @@ pub use agent::{
 pub use driver::open_host_task;
 pub use supervisor::Supervisor;
 pub use sweeper::FleetSweeper;
+pub use terminal::TerminalAdapter;

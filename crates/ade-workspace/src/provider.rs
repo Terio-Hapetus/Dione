@@ -49,6 +49,32 @@ pub trait ShellChannel: Send {
     fn kill(&mut self) -> anyhow::Result<()>;
 }
 
+/// Strip ANSI escape sequences (terminal viewer + agent transcripts).
+pub fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.next() {
+                Some('[') => {
+                    for c in chars.by_ref() {
+                        if c.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                Some('(') | Some(')') | Some('#') => {
+                    chars.next();
+                }
+                Some(_) | None => {}
+            }
+        } else if c != '\r' {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Scripted provider for tests and UI previews: pops canned outputs.
 #[derive(Debug, Default)]
 pub struct MockWorkspace {
@@ -103,5 +129,14 @@ mod tests {
         assert_eq!(m.ssh_info(), None);
         // Empty script errors instead of hanging.
         assert!(m.exec(&["echo"], Path::new("/")).is_err());
+    }
+
+    #[test]
+    fn ansi_sequences_are_stripped() {
+        assert_eq!(strip_ansi("\x1b[32mgreen\x1b[0m"), "green");
+        assert_eq!(strip_ansi("plain"), "plain");
+        assert_eq!(strip_ansi("a\rb"), "ab");
+        assert_eq!(strip_ansi("\x1b(Bbold"), "bold");
+        assert_eq!(strip_ansi("dangling\x1b"), "dangling");
     }
 }

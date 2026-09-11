@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use ade_workspace::ShellChannel;
 use ade_workspace::WorkspaceProvider as _;
+use ade_workspace::strip_ansi;
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, input::Input, label::Label};
 
@@ -61,32 +62,6 @@ impl TermState {
             }
         }
     }
-}
-
-/// Strip ANSI escape sequences for the lite viewer.
-pub(crate) fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            match chars.next() {
-                Some('[') => {
-                    for c in chars.by_ref() {
-                        if c.is_ascii_alphabetic() {
-                            break;
-                        }
-                    }
-                }
-                Some('(') | Some(')') | Some('#') => {
-                    chars.next();
-                }
-                Some(_) | None => {}
-            }
-        } else if c != '\r' {
-            out.push(c);
-        }
-    }
-    out
 }
 
 impl AdeApp {
@@ -193,16 +168,7 @@ impl AdeApp {
 mod tests {
     // NOTE: same pitfall as vm_badge — no `use super::*`; the file's
     // `use gpui::*` glob would shadow builtin `#[test]`.
-    use crate::views::terminal::{TERM_SCROLLBACK_CAP, strip_ansi};
-
-    #[test]
-    fn ansi_sequences_are_stripped() {
-        assert_eq!(strip_ansi("\x1b[32mgreen\x1b[0m"), "green");
-        assert_eq!(strip_ansi("plain"), "plain");
-        assert_eq!(strip_ansi("a\rb"), "ab");
-        assert_eq!(strip_ansi("\x1b(Bbold"), "bold");
-        assert_eq!(strip_ansi("dangling\x1b"), "dangling");
-    }
+    use crate::views::terminal::{TERM_SCROLLBACK_CAP, TermState};
 
     struct FakeShell;
 
@@ -226,8 +192,6 @@ mod tests {
 
     #[test]
     fn push_bytes_splits_partials_and_caps() {
-        use crate::views::terminal::TermState;
-
         let mut t = TermState::new(Box::new(FakeShell), std::path::PathBuf::from("/tmp"));
         assert!(!t.push_bytes(b"part"));
         assert!(t.lines.is_empty());
