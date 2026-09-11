@@ -33,6 +33,8 @@ pub trait AgentBackend: Send {
     fn prompt(&mut self, task: &TaskId, text: &str) -> anyhow::Result<()>;
     fn abort(&mut self, task: &TaskId) -> anyhow::Result<()>;
     fn poll(&mut self) -> Vec<AgentEvent>;
+    /// Record which session feeds a task. Default: ignore (e.g. `MockAgent`).
+    fn bind_session(&mut self, _task: TaskId, _session_id: &str) {}
 }
 
 /// Scripted backend for tests / CI / no-KVM machines.
@@ -128,7 +130,6 @@ impl OpencodeAdapter {
     pub fn bind(&mut self, task: TaskId, session_id: &str) {
         self.sessions.insert(task, session_id.to_string());
     }
-
     pub fn unbind(&mut self, task: &TaskId) {
         self.sessions.remove(task);
         self.cursors.remove(task);
@@ -182,6 +183,31 @@ pub fn agent_status_of(s: &SessionStatus) -> AgentStatus {
     match s {
         SessionStatus::Busy | SessionStatus::Retry { .. } => AgentStatus::Working,
         SessionStatus::Idle => AgentStatus::Idle,
+    }
+}
+
+/// Read-side translator as a backend: session I/O stays with the runtime,
+/// so spawn/prompt/abort refuse and `poll` yields nothing — collect via
+/// `collect_new(&store)` instead. Only `bind_session` is functional.
+impl AgentBackend for OpencodeAdapter {
+    fn spawn(&mut self, _task: TaskId, _prompt: &str) -> anyhow::Result<()> {
+        anyhow::bail!("OpencodeAdapter is read-side only")
+    }
+
+    fn prompt(&mut self, _task: &TaskId, _text: &str) -> anyhow::Result<()> {
+        anyhow::bail!("OpencodeAdapter is read-side only")
+    }
+
+    fn abort(&mut self, _task: &TaskId) -> anyhow::Result<()> {
+        anyhow::bail!("OpencodeAdapter is read-side only")
+    }
+
+    fn poll(&mut self) -> Vec<AgentEvent> {
+        Vec::new()
+    }
+
+    fn bind_session(&mut self, task: TaskId, session_id: &str) {
+        self.bind(task, session_id);
     }
 }
 
