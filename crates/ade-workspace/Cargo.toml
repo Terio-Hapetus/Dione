@@ -11,3 +11,5 @@ ade-vm = { path = "../ade-vm" }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+toml = { workspace = true }
+dirs = { workspace = true }

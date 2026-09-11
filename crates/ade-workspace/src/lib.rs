@@ -4,11 +4,13 @@
 //! Depends one-way on `ade-core` (TaskId) and `ade-vm` (SshInfo).
 //! `MicroVm` provider + pty `shell()` land in M5–M6.
 
+pub mod agents;
 pub mod host;
 pub mod microvm;
 pub mod provider;
 pub mod task;
 
+pub use agents::{AgentEntry, default_agents_path, load_agents_toml, probe_all, probe_bin};
 pub use host::HostProvider;
 pub use microvm::{MicroVm, PathMapping, SshTarget, shell_quote};
 pub use provider::{ExecOut, MockWorkspace, WorkspaceProvider};
