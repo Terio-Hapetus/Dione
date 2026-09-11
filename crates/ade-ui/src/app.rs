@@ -41,7 +41,13 @@ pub struct AdeApp {
     pub(crate) agent_names: Vec<String>,
     /// Name → binary present on `PATH` (green/red tick, Lab 4).
     pub(crate) agent_ok: BTreeMap<String, bool>,
+    /// Snapshot polls since startup; slow refreshes key off this.
+    pub(crate) polls: u64,
 }
+
+/// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
+/// the runtime sweep, cheap enough for a PATH scan + KVM probe).
+pub(crate) const SLOW_REFRESH_EVERY_POLLS: u64 = 375;
 
 /// Load `(names, probe)` from an `agents.toml` path. `None`/missing →
 /// empty (no registry yet, picker shows nothing).
@@ -86,6 +92,14 @@ impl AdeApp {
                         app.store = snap;
                         cx.notify();
                     }
+                    // Slow refresh: pick up agents.toml edits, newly
+                    // installed binaries, and KVM hotplug without restart.
+                    app.polls += 1;
+                    if app.polls.is_multiple_of(SLOW_REFRESH_EVERY_POLLS) {
+                        app.refresh_agents();
+                        app.vm_available = probe_kvm();
+                        cx.notify();
+                    }
                 });
             }
         })
@@ -105,12 +119,11 @@ impl AdeApp {
             vm_states: BTreeMap::new(),
             agent_names,
             agent_ok,
+            polls: 0,
         }
     }
 
-    /// Re-probe agent binaries (called when the registry changes;
-    /// supervisor wiring refreshes this per tick in a later slice).
-    #[allow(dead_code)]
+    /// Re-probe agent binaries (slow-refresh loop + registry edits).
     pub(crate) fn refresh_agents(&mut self) {
         let (names, ok) = load_agent_statuses(default_agents_path().as_deref());
         self.agent_names = names;
