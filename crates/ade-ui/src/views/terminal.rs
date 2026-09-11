@@ -132,6 +132,13 @@ impl AdeApp {
         let send = cx.listener(|this, _: &ClickEvent, window, cx| {
             this.send_terminal_input(window, cx);
         });
+        let query = self.term_query.read(cx).value().to_string();
+        let shown: Vec<String> = filter_lines(term.lines.iter().cloned(), &query);
+        let count = if query.is_empty() {
+            format!("{}", term.lines.len())
+        } else {
+            format!("{}/{}", shown.len(), term.lines.len())
+        };
         div()
             .flex_1()
             .min_h_0()
@@ -145,7 +152,7 @@ impl AdeApp {
                     .overflow_y_scroll()
                     .px_3()
                     .py_2()
-                    .children(term.lines.iter().cloned())
+                    .children(shown)
                     .into_any_element(),
             )
             .child(
@@ -157,6 +164,12 @@ impl AdeApp {
                     .py_2()
                     .border_t_1()
                     .border_color(cx.theme().border)
+                    .child(div().w(px(140.)).child(Input::new(&self.term_query)))
+                    .child(
+                        Label::new(count)
+                            .text_size(px(11.))
+                            .text_color(muted_color()),
+                    )
                     .child(div().flex_1().min_w_0().child(Input::new(&self.term_input)))
                     .child(Button::new("term-send").label("⏎").small().on_click(send)),
             )
@@ -164,11 +177,19 @@ impl AdeApp {
     }
 }
 
+/// Substring filter for scrollback search. Empty query shows everything.
+pub(crate) fn filter_lines(lines: impl Iterator<Item = String>, query: &str) -> Vec<String> {
+    if query.is_empty() {
+        return lines.collect();
+    }
+    lines.filter(|l| l.contains(query)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     // NOTE: same pitfall as vm_badge — no `use super::*`; the file's
     // `use gpui::*` glob would shadow builtin `#[test]`.
-    use crate::views::terminal::{TERM_SCROLLBACK_CAP, TermState};
+    use crate::views::terminal::{TERM_SCROLLBACK_CAP, TermState, filter_lines};
 
     struct FakeShell;
 
@@ -203,5 +224,16 @@ mod tests {
         }
         assert_eq!(t.lines.len(), TERM_SCROLLBACK_CAP);
         assert_eq!(t.lines[0], "l10");
+    }
+
+    #[test]
+    fn filter_matches_substring_or_all() {
+        let lines = vec!["foo".to_string(), "bar".to_string(), "foobar".to_string()];
+        assert_eq!(filter_lines(lines.clone().into_iter(), "").len(), 3);
+        assert_eq!(
+            filter_lines(lines.clone().into_iter(), "foo"),
+            vec!["foo".to_string(), "foobar".to_string()]
+        );
+        assert!(filter_lines(lines.into_iter(), "zzz").is_empty());
     }
 }

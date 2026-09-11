@@ -51,6 +51,8 @@ pub struct AdeApp {
     pub(crate) show_terminal: bool,
     /// Terminal input row.
     pub(crate) term_input: Entity<InputState>,
+    /// Terminal search filter.
+    pub(crate) term_query: Entity<InputState>,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -89,6 +91,11 @@ impl AdeApp {
             InputState::new(window, cx)
                 .placeholder("shell… (Enter to run)")
                 .auto_grow(1, 3)
+        });
+        let term_query = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("filter…")
+                .auto_grow(1, 1)
         });
         cx.subscribe_in(&term_input, window, |this, _, ev, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
@@ -135,6 +142,7 @@ impl AdeApp {
             store,
             input,
             term_input,
+            term_query,
             right_tab: RightTab::Context,
             model_ix: None,
             diff_notes: Vec::new(),
