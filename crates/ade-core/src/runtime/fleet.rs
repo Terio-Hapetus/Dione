@@ -12,11 +12,18 @@ use crate::transcript::TaskId;
 /// Implemented by `ade-agent::Supervisor`.
 pub trait SupervisedTask: Send {
     fn task_id(&self) -> TaskId;
+    /// Worktree slug this task owns (`1 task = 1 worktree` convention).
+    /// `None` = never auto-bound to new sessions.
+    fn slug(&self) -> Option<&str> {
+        None
+    }
     /// Drain new backend events into the store. Must be non-blocking:
     /// it runs inside the runtime `select!` loop.
     fn tick(&mut self, store: &mut Store);
     /// Record which session feeds this task. Default: ignore.
     fn bind_session(&mut self, _session_id: &str) {}
+    /// Forget a retired session. Default: ignore.
+    fn unbind_session(&mut self, _session_id: &str) {}
 }
 
 /// Kanban-lite sweep report for one task. Pure report, no side effects.
@@ -29,12 +36,13 @@ pub enum SweepAction {
     Blocked(TaskId),
 }
 
-/// Periodic triage over tracked sessions. Sessions (not tasks) are the
-/// currency here so `ade-core` never names workspace types.
+/// Periodic triage over tracked tasks. Tasks (not sessions) are the
+/// currency so the sweeper never names workspace types; `TaskId` is
+/// `ade-core`'s own transcript key.
 pub trait TaskSweeper: Send {
-    fn track_session(&mut self, session_id: &str);
-    fn untrack_session(&mut self, session_id: &str);
-    fn note_session_error(&mut self, session_id: &str);
+    fn track_task(&mut self, task: TaskId);
+    fn untrack_task(&mut self, task: &TaskId);
+    fn note_task_error(&mut self, task: &TaskId);
     fn sweep(&self) -> Vec<SweepAction>;
 }
 
@@ -62,6 +70,47 @@ pub(crate) fn apply_sweep(store: &mut Store, actions: &[SweepAction]) {
     }
 }
 
+/// Bind a fresh session to the supervised tasks owning its scope and
+/// track those tasks for sweep. Root scope ("") is never task-bound.
+pub(crate) fn bind_new_session(
+    fleet: &mut [Box<dyn SupervisedTask>],
+    sweeper: &mut Option<Box<dyn TaskSweeper>>,
+    scope: &str,
+    session_id: &str,
+) {
+    if scope.is_empty() {
+        return;
+    }
+    for t in fleet.iter_mut() {
+        if t.slug().is_some_and(|sl| sl == scope) {
+            t.bind_session(session_id);
+            if let Some(sw) = sweeper.as_mut() {
+                sw.track_task(t.task_id());
+            }
+        }
+    }
+}
+
+/// Forget retired sessions: unbind every task, untrack their tasks.
+/// Call before `retire_session` drops the `session_task` map.
+pub(crate) fn release_sessions(
+    fleet: &mut [Box<dyn SupervisedTask>],
+    sweeper: &mut Option<Box<dyn TaskSweeper>>,
+    store: &Store,
+    sids: &[String],
+) {
+    for sid in sids {
+        for t in fleet.iter_mut() {
+            t.unbind_session(sid);
+        }
+        if let Some(task) = store.session_task.get(sid)
+            && let Some(sw) = sweeper.as_mut()
+        {
+            sw.untrack_task(task);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,16 +118,16 @@ mod tests {
 
     struct StubTask {
         id: TaskId,
+        owned_slug: Option<String>,
         ticks: usize,
-        bound: Vec<String>,
     }
 
     impl StubTask {
         fn new() -> Self {
             Self {
                 id: TaskId::new(),
+                owned_slug: None,
                 ticks: 0,
-                bound: Vec::new(),
             }
         }
     }
@@ -86,6 +135,10 @@ mod tests {
     impl SupervisedTask for StubTask {
         fn task_id(&self) -> TaskId {
             self.id
+        }
+
+        fn slug(&self) -> Option<&str> {
+            self.owned_slug.as_deref()
         }
 
         fn tick(&mut self, store: &mut Store) {
@@ -100,9 +153,9 @@ mod tests {
             });
         }
 
-        fn bind_session(&mut self, session_id: &str) {
-            self.bound.push(session_id.to_string());
-        }
+        fn bind_session(&mut self, _session_id: &str) {}
+
+        fn unbind_session(&mut self, _session_id: &str) {}
     }
 
     struct StubSweeper {
@@ -110,9 +163,9 @@ mod tests {
     }
 
     impl TaskSweeper for StubSweeper {
-        fn track_session(&mut self, _session_id: &str) {}
-        fn untrack_session(&mut self, _session_id: &str) {}
-        fn note_session_error(&mut self, _session_id: &str) {}
+        fn track_task(&mut self, _task: TaskId) {}
+        fn untrack_task(&mut self, _task: &TaskId) {}
+        fn note_task_error(&mut self, _task: &TaskId) {}
         fn sweep(&self) -> Vec<SweepAction> {
             self.actions.clone()
         }
@@ -150,5 +203,101 @@ mod tests {
             &[SweepAction::Reclaim(id), SweepAction::Blocked(id)],
         );
         assert_eq!(store.errors.len(), 2);
+    }
+
+    use std::sync::{Arc, Mutex};
+
+    /// Local stub sharing an append-only log so tests can observe
+    /// behind-trait-object calls.
+    struct Logged {
+        id: TaskId,
+        owned_slug: Option<String>,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl SupervisedTask for Logged {
+        fn task_id(&self) -> TaskId {
+            self.id
+        }
+
+        fn slug(&self) -> Option<&str> {
+            self.owned_slug.as_deref()
+        }
+
+        fn tick(&mut self, _store: &mut Store) {}
+
+        fn bind_session(&mut self, sid: &str) {
+            self.log.lock().unwrap().push(format!("bind:{sid}"));
+        }
+
+        fn unbind_session(&mut self, sid: &str) {
+            self.log.lock().unwrap().push(format!("unbind:{sid}"));
+        }
+    }
+
+    struct LoggedSweeper {
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl TaskSweeper for LoggedSweeper {
+        fn track_task(&mut self, task: TaskId) {
+            self.log.lock().unwrap().push(format!("track:{task}"));
+        }
+        fn untrack_task(&mut self, task: &TaskId) {
+            self.log.lock().unwrap().push(format!("untrack:{task}"));
+        }
+        fn note_task_error(&mut self, _task: &TaskId) {}
+        fn sweep(&self) -> Vec<SweepAction> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn bind_new_session_matches_slug_only() {
+        let log: Arc<Mutex<Vec<String>>> = Default::default();
+        let mk = |slug: Option<&str>| Logged {
+            id: TaskId::new(),
+            owned_slug: slug.map(str::to_string),
+            log: Arc::clone(&log),
+        };
+        let mut fleet: Vec<Box<dyn SupervisedTask>> =
+            vec![Box::new(mk(Some("wt-a"))), Box::new(mk(None))];
+        let mut sweeper: Option<Box<dyn TaskSweeper>> = Some(Box::new(LoggedSweeper {
+            log: Arc::clone(&log),
+        }));
+        bind_new_session(&mut fleet, &mut sweeper, "wt-a", "s1");
+        // Root scope never binds, even with matching tasks present.
+        bind_new_session(&mut fleet, &mut sweeper, "", "s-root");
+        let got = log.lock().unwrap().clone();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], "bind:s1");
+        assert!(got[1].starts_with("track:"));
+    }
+
+    #[test]
+    fn release_sessions_unbinds_and_untracks() {
+        let mut store = Store::default();
+        let task = store.task_for_session("s1");
+        let log: Arc<Mutex<Vec<String>>> = Default::default();
+        let mut fleet: Vec<Box<dyn SupervisedTask>> = vec![Box::new(Logged {
+            id: task,
+            owned_slug: Some("wt-a".into()),
+            log: Arc::clone(&log),
+        })];
+        let mut sweeper: Option<Box<dyn TaskSweeper>> = Some(Box::new(LoggedSweeper {
+            log: Arc::clone(&log),
+        }));
+        release_sessions(&mut fleet, &mut sweeper, &store, &["s1".to_string()]);
+        // Releasing an unknown session still unbinds, never crashes.
+        release_sessions(&mut fleet, &mut sweeper, &store, &["nope".to_string()]);
+        let got = log.lock().unwrap().clone();
+        assert_eq!(
+            got,
+            vec![
+                "unbind:s1".to_string(),
+                format!("untrack:{task}"),
+                "unbind:nope".to_string(),
+            ]
+        );
     }
 }

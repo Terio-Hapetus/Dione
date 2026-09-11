@@ -5,6 +5,7 @@ use opencode_codes::protocol_generated::types::{
 };
 
 use super::LoopState;
+use super::fleet::bind_new_session;
 use super::reconcile::reconcile_messages;
 use crate::worktree;
 
@@ -36,6 +37,8 @@ pub(crate) async fn create_session_in(
             {
                 record.session_id = Some(s.id.clone());
             }
+            // M4 fleet: bind supervised tasks owning this scope + track them.
+            bind_new_session(&mut st.fleet, &mut st.sweeper, scope, &s.id);
             reconcile_messages(st, client, &s.id).await;
         }
         Err(e) => st.store.push_error(format!("create session failed: {e:#}")),

@@ -139,6 +139,8 @@ pub(crate) async fn create_worktree(
 /// Forget a worktree's sessions/clients/records after its git dir is gone
 /// (removed or merged). Shared by remove and merge paths.
 pub(crate) fn drop_scope(st: &mut LoopState, slug: &str, sids: &[String]) {
+    // M4 fleet: unbind + untrack before retire drops the session_task map.
+    super::fleet::release_sessions(&mut st.fleet, &mut st.sweeper, &st.store, sids);
     for sid in sids {
         st.store.retire_session(sid);
     }
