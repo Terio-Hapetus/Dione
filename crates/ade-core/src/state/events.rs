@@ -27,6 +27,8 @@ pub fn apply_event(store: &mut Store, ev: &Event) {
             store.sessions.remove(id);
             store.statuses.remove(id);
             store.messages.remove(id);
+            // Mirror first: it reads the session_task mapping below.
+            store.drop_session_mirror(id);
             store.session_task.remove(id);
             if store.active_session.as_deref() == Some(id) {
                 store.active_session = store.sessions.keys().next().cloned();

@@ -224,6 +224,19 @@ impl Store {
         }
     }
 
+    /// Drop the unified mirror + pending gates + totals contribution of a
+    /// session. Reads the `session_task` mapping, so callers must invoke it
+    /// before that mapping is removed. Supervisor-pushed messages under a
+    /// different task id are out of reach (identity unifies in M7).
+    pub(crate) fn drop_session_mirror(&mut self, sid: &str) {
+        if let Some(task) = self.session_task.get(sid).copied() {
+            self.transcripts.remove(&task);
+            self.costs.remove(&task);
+        }
+        self.pending_permissions.retain(|_, p| p.session_id != sid);
+        self.recompute_totals();
+    }
+
     /// Drop a session and everything mirrored for it; future SSE frames for
     /// it are ignored. Returns its scope, if known.
     pub fn retire_session(&mut self, sid: &str) -> Option<String> {
@@ -232,7 +245,7 @@ impl Store {
         self.messages.remove(sid);
         self.todos.remove(sid);
         self.diffs.remove(sid);
-        self.pending_permissions.retain(|_, p| p.session_id != sid);
+        self.drop_session_mirror(sid);
         if self.active_session.as_deref() == Some(sid) {
             self.active_session = self.sessions.keys().next().cloned();
         }
@@ -344,5 +357,44 @@ mod tests {
         // Stable mapping: second write lands in the same task.
         let task = t[0].task;
         assert_eq!(s.task_for_session("s1"), task);
+    }
+
+    #[test]
+    fn retire_drops_mirror_pending_and_totals() {
+        let mut s = Store::default();
+        let task = s.task_for_session("s1");
+        s.push_unified(UnifiedMessage {
+            id: "m1".into(),
+            task,
+            role: crate::transcript::Role::Agent,
+            text: "x".into(),
+            tool: None,
+            ts: 0,
+        });
+        s.costs.insert(
+            task,
+            Cost {
+                input: 1.0,
+                output: 0.0,
+                cache: 0.0,
+                cost: 0.1,
+            },
+        );
+        s.pending_permissions.insert(
+            "p1".into(),
+            PendingPermission {
+                permission_id: "p1".into(),
+                session_id: "s1".into(),
+                ..Default::default()
+            },
+        );
+        s.totals.input = 99.0;
+        s.retire_session("s1");
+        assert!(!s.transcripts.contains_key(&task));
+        assert!(!s.costs.contains_key(&task));
+        assert!(!s.session_task.contains_key("s1"));
+        assert!(s.pending_permissions.is_empty());
+        // Totals recomputed over the remaining (empty) messages.
+        assert_eq!(s.totals.input, 0.0);
     }
 }
