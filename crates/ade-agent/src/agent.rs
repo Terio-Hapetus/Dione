@@ -33,6 +33,11 @@ pub trait AgentBackend: Send {
     fn prompt(&mut self, task: &TaskId, text: &str) -> anyhow::Result<()>;
     fn abort(&mut self, task: &TaskId) -> anyhow::Result<()>;
     fn poll(&mut self) -> Vec<AgentEvent>;
+    /// Collect new events against a store snapshot. Default: drain `poll()`.
+    /// `OpencodeAdapter` overrides this with `collect_new` (cursor dedup).
+    fn collect(&mut self, _store: &Store) -> Vec<AgentEvent> {
+        self.poll()
+    }
     /// Record which session feeds a task. Default: ignore (e.g. `MockAgent`).
     fn bind_session(&mut self, _task: TaskId, _session_id: &str) {}
     /// Forget a retired session. Default: ignore.
@@ -208,6 +213,10 @@ impl AgentBackend for OpencodeAdapter {
         Vec::new()
     }
 
+    fn collect(&mut self, store: &Store) -> Vec<AgentEvent> {
+        self.collect_new(store)
+    }
+
     fn bind_session(&mut self, task: TaskId, session_id: &str) {
         self.bind(task, session_id);
     }
@@ -347,5 +356,31 @@ mod tests {
             backend.unbind_session("nope");
         }
         assert_eq!(ad.session_of(&task), None);
+    }
+
+    #[test]
+    fn collect_reports_needs_input_on_permission() {
+        use ade_core::PendingPermission;
+
+        let mut store = Store::default();
+        let task = store.task_for_session("s1");
+        store.pending_permissions.insert(
+            "p1".into(),
+            PendingPermission {
+                permission_id: "p1".into(),
+                session_id: "s1".into(),
+                ..Default::default()
+            },
+        );
+        let mut ad = OpencodeAdapter::new();
+        ad.bind(task, "s1");
+        let evs = ad.collect(&store);
+        assert!(
+            evs.iter().any(|e| matches!(
+                e,
+                AgentEvent::Status(t, AgentStatus::NeedsInput { .. }) if *t == task
+            )),
+            "expected NeedsInput, got {evs:?}"
+        );
     }
 }

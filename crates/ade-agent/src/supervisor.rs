@@ -39,9 +39,11 @@ impl Supervisor {
     }
 
     /// Drain new backend events into the store. Idempotent: re-tick with
-    /// an empty queue writes nothing.
+    /// an empty queue writes nothing. Uses `collect` (not `poll`) so
+    /// read-side backends (`OpencodeAdapter`) contribute their cursor
+    /// stream too.
     pub fn tick(&mut self, store: &mut Store) {
-        for ev in self.backend.poll() {
+        for ev in self.backend.collect(store) {
             apply_agent_event(store, &ev);
         }
     }
@@ -148,5 +150,34 @@ mod tests {
         SupervisedTask::bind_session(&mut sup, "s9");
         SupervisedTask::unbind_session(&mut sup, "s9");
         assert_eq!(store.transcripts.get(&id).map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn adapter_backend_collects_through_tick_without_dupes() {
+        use crate::agent::OpencodeAdapter;
+        use ade_core::transcript::{Role, UnifiedMessage};
+
+        let task = Task::new("feat-z", "opencode");
+        let mut sup = Supervisor::new(
+            task,
+            Box::new(OpencodeAdapter::new()),
+            Box::new(MockWorkspace::new()),
+        );
+        let mut store = Store::default();
+        let sid_task = store.task_for_session("s1");
+        store.push_unified(UnifiedMessage {
+            id: "m1".into(),
+            task: sid_task,
+            role: Role::Agent,
+            text: "hi".into(),
+            tool: None,
+            ts: 0,
+        });
+        sup.bind_session("s1");
+        sup.tick(&mut store);
+        assert_eq!(store.transcripts.get(&sid_task).map(|v| v.len()), Some(1));
+        // Second tick: cursor dedup, no duplicate messages.
+        sup.tick(&mut store);
+        assert_eq!(store.transcripts.get(&sid_task).map(|v| v.len()), Some(1));
     }
 }
