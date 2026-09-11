@@ -19,14 +19,34 @@ impl ExecOut {
 }
 
 /// The seam Host and MicroVm share: agents only see this, never the
-/// concrete environment. `shell()` (pty, M6) and git-diff-via-mount (M5)
-/// extend this trait later; `exec` + `ssh_info` is today's surface.
+/// concrete environment. `shell()` (pty, M6) opens an interactive shell;
+/// `exec` + `ssh_info` is the non-interactive surface.
 pub trait WorkspaceProvider: Send {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut>;
     /// `None` = running on the Host. `Some` = attached guest (VM/SSH).
     fn ssh_info(&self) -> Option<SshInfo> {
         None
     }
+    /// Interactive shell in `cwd`. Default: unsupported (override per
+    /// backend; Host uses `portable-pty`, MicroVm SSH lands in M6f).
+    fn shell(&mut self, _cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {
+        anyhow::bail!("shell not supported by this provider")
+    }
+}
+
+/// Interactive shell channel: bytes in/out, resize, liveness, kill.
+/// Object-safe so providers return it boxed.
+pub trait ShellChannel: Send {
+    /// Send keystrokes/bytes to the shell.
+    fn write_bytes(&mut self, data: &[u8]) -> anyhow::Result<()>;
+    /// Drain all output currently buffered. Never blocks.
+    fn read_available(&mut self) -> Vec<u8>;
+    /// Resize the pty grid.
+    fn resize(&mut self, cols: u16, rows: u16) -> anyhow::Result<()>;
+    /// Is the child still running?
+    fn is_alive(&mut self) -> bool;
+    /// Terminate the child.
+    fn kill(&mut self) -> anyhow::Result<()>;
 }
 
 /// Scripted provider for tests and UI previews: pops canned outputs.
