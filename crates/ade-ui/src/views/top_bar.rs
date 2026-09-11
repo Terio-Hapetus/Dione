@@ -59,6 +59,7 @@ impl AdeApp {
                     .compact()
                     .on_click(next),
             )
+            .child(self.render_agent_ticks())
             .child(div().flex_1())
             .child(
                 Label::new(format!(
@@ -68,5 +69,58 @@ impl AdeApp {
                 ))
                 .text_color(muted_color()),
             )
+    }
+
+    /// Agent picker ticks (Lab 4): `name ●` present, `name ○` missing.
+    /// Empty registry renders nothing.
+    pub(crate) fn render_agent_ticks(&self) -> impl IntoElement {
+        let mut row = div().flex().items_center().gap_1();
+        for name in &self.agent_names {
+            let ok = self.agent_ok.get(name).copied().unwrap_or(false);
+            let dot = if ok { ok_color() } else { muted_color() };
+            row = row.child(
+                Label::new(format!("{} {}", name, if ok { "●" } else { "○" }))
+                    .text_size(px(11.))
+                    .text_color(dot),
+            );
+        }
+        row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // NOTE: same pitfall as vm_badge — no `use super::*`; the file's
+    // `use gpui::*` glob would shadow builtin `#[test]`.
+    use std::collections::BTreeMap;
+
+    use crate::app::load_agent_statuses;
+
+    fn write_agents(body: &str) -> std::path::PathBuf {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let p = std::env::temp_dir().join(format!("ade-picker-{n}.toml"));
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn missing_registry_yields_empty_ticks() {
+        let (names, ok): (Vec<String>, BTreeMap<String, bool>) = load_agent_statuses(None);
+        assert!(names.is_empty());
+        assert!(ok.is_empty());
+        let p = std::env::temp_dir().join("ade-picker-does-not-exist.toml");
+        assert!(load_agent_statuses(Some(&p)).0.is_empty());
+    }
+
+    #[test]
+    fn ticks_reflect_probe_results() {
+        let p = write_agents(
+            "[agents.good]\nbin = \"sh\"\n[agents.bad]\nbin = \"ade-no-such-bin-xyz\"\n",
+        );
+        let (names, ok) = load_agent_statuses(Some(&p));
+        assert_eq!(names, vec!["bad".to_string(), "good".to_string()]);
+        assert!(ok["good"]);
+        assert!(!ok["bad"]);
     }
 }

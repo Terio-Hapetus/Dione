@@ -4,11 +4,13 @@
 //! text helpers live in `views::theme`.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use ade_core::{Command, DiffNote, RuntimeHandle, Store};
 use ade_vm::{VmState, probe_kvm};
+use ade_workspace::{default_agents_path, load_agents_toml, probe_all};
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _,
@@ -35,6 +37,21 @@ pub struct AdeApp {
     /// Workspace slug → VM lifecycle state. Filled by the VmManager
     /// wiring (post-M5 Open-Workspace flow); empty until then.
     pub(crate) vm_states: BTreeMap<String, VmState>,
+    /// Agent registry names from `agents.toml` (M4b), in file order.
+    pub(crate) agent_names: Vec<String>,
+    /// Name → binary present on `PATH` (green/red tick, Lab 4).
+    pub(crate) agent_ok: BTreeMap<String, bool>,
+}
+
+/// Load `(names, probe)` from an `agents.toml` path. `None`/missing →
+/// empty (no registry yet, picker shows nothing).
+pub(crate) fn load_agent_statuses(path: Option<&Path>) -> (Vec<String>, BTreeMap<String, bool>) {
+    let Some(p) = path else {
+        return (Vec::new(), BTreeMap::new());
+    };
+    let reg = load_agents_toml(p);
+    let names: Vec<String> = reg.keys().cloned().collect();
+    (names, probe_all(&reg))
 }
 
 impl AdeApp {
@@ -75,6 +92,7 @@ impl AdeApp {
         .detach();
 
         let store = rt.snapshot();
+        let (agent_names, agent_ok) = load_agent_statuses(default_agents_path().as_deref());
         Self {
             rt,
             store,
@@ -85,7 +103,18 @@ impl AdeApp {
             annotate_target: None,
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
+            agent_names,
+            agent_ok,
         }
+    }
+
+    /// Re-probe agent binaries (called when the registry changes;
+    /// supervisor wiring refreshes this per tick in a later slice).
+    #[allow(dead_code)]
+    pub(crate) fn refresh_agents(&mut self) {
+        let (names, ok) = load_agent_statuses(default_agents_path().as_deref());
+        self.agent_names = names;
+        self.agent_ok = ok;
     }
 
     /// Record a workspace VM state for the Fleet badge.
