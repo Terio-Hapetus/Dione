@@ -9,9 +9,11 @@
 
 pub mod agent;
 pub mod supervisor;
+pub mod sweeper;
 
 pub use agent::{
     AgentBackend, AgentEvent, AgentStatus, MockAgent, OpencodeAdapter, agent_status_of,
     apply_agent_event,
 };
 pub use supervisor::Supervisor;
+pub use sweeper::FleetSweeper;

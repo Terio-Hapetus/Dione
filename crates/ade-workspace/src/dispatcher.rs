@@ -31,10 +31,17 @@ struct TaskMeta {
 }
 
 /// Tracks live tasks and reports reclaim/block actions per sweep.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Dispatcher {
     interval: Duration,
     tasks: BTreeMap<TaskId, TaskMeta>,
+}
+
+impl Default for Dispatcher {
+    /// Same as `new()`: a zero interval would reclaim every fresh task.
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dispatcher {
@@ -51,6 +58,20 @@ impl Dispatcher {
             task.id,
             TaskMeta {
                 deadline: task.max_runtime_secs.map(|s| now + Duration::from_secs(s)),
+                errors: 0,
+                last_beat: now,
+            },
+        );
+    }
+
+    /// Track a bare id with no deadline (stale-only reclaim). Used by the
+    /// `TaskSweeper` adapter, which sees `TaskId`s, not full tasks.
+    pub fn track_id(&mut self, id: TaskId) {
+        let now = Instant::now();
+        self.tasks.insert(
+            id,
+            TaskMeta {
+                deadline: None,
                 errors: 0,
                 last_beat: now,
             },
@@ -131,6 +152,18 @@ mod tests {
         d.note_error(&t.id);
         let now = Instant::now() + Duration::from_secs(3600);
         assert_eq!(d.sweep_at(now), vec![DispatcherAction::Blocked(t.id)]);
+    }
+    #[test]
+    fn bare_id_tracks_without_deadline() {
+        let mut d = Dispatcher::new();
+        let id = TaskId::new();
+        d.track_id(id);
+        assert!(d.sweep().is_empty());
+        d.note_error(&id);
+        d.note_error(&id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(id)]);
+        d.untrack(&id);
+        assert!(d.sweep().is_empty());
     }
 
     #[test]

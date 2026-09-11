@@ -59,13 +59,19 @@ pub(crate) fn drain_fleet(fleet: &mut [Box<dyn SupervisedTask>], store: &mut Sto
     }
 }
 
-/// Minimal action consumer (slice 4 refines into retry/banner): surface
-/// both actions as errors so nothing is silently dropped.
-pub(crate) fn apply_sweep(store: &mut Store, actions: &[SweepAction]) {
+/// Action consumer: surface both actions as errors so nothing is
+/// silently dropped. Reclaim hints retry; Blocked asks for a human.
+pub fn apply_sweep(store: &mut Store, actions: &[SweepAction]) {
     for a in actions {
         match a {
-            SweepAction::Reclaim(id) => store.push_error(format!("fleet: reclaim {id}")),
-            SweepAction::Blocked(id) => store.push_error(format!("fleet: blocked {id}")),
+            SweepAction::Reclaim(id) => {
+                store.push_error(format!("fleet: reclaim {id} (overdue/stale, will retry)"));
+            }
+            SweepAction::Blocked(id) => {
+                store.push_error(format!(
+                    "fleet: blocked {id} (2 errors, needs a human look)"
+                ));
+            }
         }
     }
 }
