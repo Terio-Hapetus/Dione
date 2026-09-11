@@ -4,6 +4,7 @@ pub mod diff;
 pub mod permission;
 pub mod right_panel;
 pub mod sidebar;
+pub mod terminal;
 pub mod theme;
 pub mod top_bar;
 pub mod vm_badge;

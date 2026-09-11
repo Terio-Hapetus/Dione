@@ -17,6 +17,8 @@ use gpui_component::{
     input::{InputEvent, InputState},
 };
 
+use crate::views::terminal::TermState;
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum RightTab {
     Context,
@@ -43,6 +45,12 @@ pub struct AdeApp {
     pub(crate) agent_ok: BTreeMap<String, bool>,
     /// Snapshot polls since startup; slow refreshes key off this.
     pub(crate) polls: u64,
+    /// Local pty tab state (M6c2). `None` until first opened.
+    pub(crate) term: Option<TermState>,
+    /// Show terminal instead of chat in the main column.
+    pub(crate) show_terminal: bool,
+    /// Terminal input row.
+    pub(crate) term_input: Entity<InputState>,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -77,6 +85,17 @@ impl AdeApp {
             }
         })
         .detach();
+        let term_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("shell… (Enter to run)")
+                .auto_grow(1, 3)
+        });
+        cx.subscribe_in(&term_input, window, |this, _, ev, window, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. }) {
+                this.send_terminal_input(window, cx);
+            }
+        })
+        .detach();
 
         // Snapshot polling — the SSE pump + reconcile live in ade-core's thread.
         cx.spawn(async move |this, cx| {
@@ -100,6 +119,10 @@ impl AdeApp {
                         app.vm_available = probe_kvm();
                         cx.notify();
                     }
+                    // Terminal pump: non-blocking scrollback drain.
+                    if app.show_terminal && app.pump_terminal() {
+                        cx.notify();
+                    }
                 });
             }
         })
@@ -111,6 +134,7 @@ impl AdeApp {
             rt,
             store,
             input,
+            term_input,
             right_tab: RightTab::Context,
             model_ix: None,
             diff_notes: Vec::new(),
@@ -120,6 +144,8 @@ impl AdeApp {
             agent_names,
             agent_ok,
             polls: 0,
+            term: None,
+            show_terminal: false,
         }
     }
 
@@ -240,7 +266,11 @@ impl Render for AdeApp {
                             .overflow_hidden()
                             .child(self.render_vm_banner())
                             .child(self.render_error_strip())
-                            .child(self.render_chat(window, cx))
+                            .child(if self.show_terminal {
+                                self.render_terminal(cx)
+                            } else {
+                                self.render_chat(window, cx)
+                            })
                             .child(self.render_composer(cx)),
                     )
                     .child(self.render_right_panel(cx)),

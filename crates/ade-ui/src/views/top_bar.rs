@@ -31,6 +31,8 @@ impl AdeApp {
                 this.pick_model(this.model_ix.map(|i| (i + n - 1) % n).unwrap_or(n - 1));
             }
         });
+        let term_label = if self.show_terminal { "Chat" } else { "Term" };
+        let toggle_term = cx.listener(|this, _: &ClickEvent, _, _| this.toggle_terminal());
 
         div()
             .h(px(38.))
@@ -60,6 +62,13 @@ impl AdeApp {
                     .on_click(next),
             )
             .child(self.render_agent_ticks())
+            .child(
+                Button::new("term-toggle")
+                    .label(term_label)
+                    .xsmall()
+                    .compact()
+                    .on_click(toggle_term),
+            )
             .child(div().flex_1())
             .child(
                 Label::new(format!(
