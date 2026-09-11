@@ -39,16 +39,17 @@ about embedded repos).
 
 UI hết import opencode; diff qua git để mọi agent dùng được.
 
-- [ ] `transcript.rs`: `UnifiedMessage`/`Cost`, Store dual-write + test mirror
-- [ ] `agent.rs`: `AgentBackend` trait + `OpencodeAdapter` (wrap `server.rs`)
-- [ ] `git_diff` thay `GET /session/{id}/diff` (`worktree.rs` + test)
-- [ ] UI Chat đọc `transcripts` (mỗi slice `app.rs` <200 dòng)
+- [x] `transcript.rs`: `UnifiedMessage`/`Cost`, Store dual-write + test mirror
+- [x] `agent.rs`: `AgentBackend` trait + `OpencodeAdapter` (wrap `server.rs`)
+- [x] `git_diff` thay `GET /session/{id}/diff` (`worktree.rs` + test)
+- [x] UI Chat đọc `transcripts` (mỗi slice `app.rs` <200 dòng)
 
 ## M4 — Workspace + Task (Host trước, chưa VM)
 
-- [ ] `workspace.rs` + `HostProvider` + `Task { id, slug, agent_ref }`
-- [ ] `agents.toml` + probe `which <bin>` (tick xanh/đỏ ở Agent picker)
-- [ ] Runtime: supervisors thay clients; kanban-lite dispatcher 60s + reclaim
+- [x] `workspace.rs` + `HostProvider` + `Task { id, slug, agent_ref }`
+- [x] `agents.toml` + probe `which <bin>` (tick xanh/đỏ ở Agent picker)
+- [x] `Supervisor` (backend+workspace/task) + kanban-lite `Dispatcher` 60s
+      (structs + tests; runtime sweep wiring pending)
 
 ## M5 — MicroVM lõi (1 VM / workspace)
 
