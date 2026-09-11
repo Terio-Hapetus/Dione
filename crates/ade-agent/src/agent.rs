@@ -35,6 +35,8 @@ pub trait AgentBackend: Send {
     fn poll(&mut self) -> Vec<AgentEvent>;
     /// Record which session feeds a task. Default: ignore (e.g. `MockAgent`).
     fn bind_session(&mut self, _task: TaskId, _session_id: &str) {}
+    /// Forget a retired session. Default: ignore.
+    fn unbind_session(&mut self, _session_id: &str) {}
 }
 
 /// Scripted backend for tests / CI / no-KVM machines.
@@ -209,6 +211,18 @@ impl AgentBackend for OpencodeAdapter {
     fn bind_session(&mut self, task: TaskId, session_id: &str) {
         self.bind(task, session_id);
     }
+
+    fn unbind_session(&mut self, session_id: &str) {
+        let dead: Vec<TaskId> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.as_str() == session_id)
+            .map(|(t, _)| *t)
+            .collect();
+        for t in dead {
+            self.unbind(&t);
+        }
+    }
 }
 
 /// Narrowed applier: the M3d UI path writes transcripts directly from
@@ -312,5 +326,26 @@ mod tests {
         );
         assert_eq!(store.transcripts.get(&task).unwrap().len(), 1);
         assert_eq!(store.costs.get(&task).unwrap().input, 5.0);
+    }
+
+    #[test]
+    fn adapter_session_binding_roundtrips_through_trait() {
+        let task = TaskId::new();
+        let mut ad = OpencodeAdapter::new();
+        {
+            let backend: &mut dyn AgentBackend = &mut ad;
+            // Read-side backend refuses session I/O but binds fine.
+            assert!(backend.spawn(task, "x").is_err());
+            backend.bind_session(task, "s7");
+            assert!(backend.poll().is_empty());
+        }
+        assert_eq!(ad.session_of(&task), Some("s7"));
+        {
+            let backend: &mut dyn AgentBackend = &mut ad;
+            backend.unbind_session("s7");
+            // Unknown session unbind is a no-op.
+            backend.unbind_session("nope");
+        }
+        assert_eq!(ad.session_of(&task), None);
     }
 }

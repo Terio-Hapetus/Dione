@@ -51,6 +51,30 @@ impl Supervisor {
     }
 }
 
+/// M4 wiring: the runtime drives supervisors through the `ade-core` seam
+/// (`drain_fleet` after reconcile, `bind_new_session` on create).
+impl ade_core::runtime::fleet::SupervisedTask for Supervisor {
+    fn task_id(&self) -> TaskId {
+        self.task.id
+    }
+
+    fn slug(&self) -> Option<&str> {
+        Some(&self.task.slug)
+    }
+
+    fn tick(&mut self, store: &mut Store) {
+        Supervisor::tick(self, store);
+    }
+
+    fn bind_session(&mut self, session_id: &str) {
+        Supervisor::bind_session(self, session_id);
+    }
+
+    fn unbind_session(&mut self, session_id: &str) {
+        self.backend.unbind_session(session_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +132,21 @@ mod tests {
         let mut store2 = Store::default();
         sup2.tick(&mut store2);
         assert!(store2.transcripts.is_empty());
+    }
+
+    #[test]
+    fn seam_trait_delegates_to_inherent_methods() {
+        use ade_core::runtime::fleet::SupervisedTask;
+
+        let (mut sup, id) = supervisor_with_prompt("hello");
+        // slug() exposes the task slug so the runtime auto-binds on create.
+        assert_eq!(SupervisedTask::slug(&sup), Some("feat-x"));
+        assert_eq!(SupervisedTask::task_id(&sup), id);
+        let mut store = Store::default();
+        // Trait tick drains; unbind on a Mock backend is a safe no-op.
+        SupervisedTask::tick(&mut sup, &mut store);
+        SupervisedTask::bind_session(&mut sup, "s9");
+        SupervisedTask::unbind_session(&mut sup, "s9");
+        assert_eq!(store.transcripts.get(&id).map(|v| v.len()), Some(1));
     }
 }
