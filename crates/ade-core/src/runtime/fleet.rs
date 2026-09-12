@@ -130,10 +130,31 @@ impl FleetInbox {
     }
 
     /// Register a supervised task (driver: M6 Open-Workspace flow).
-    pub fn register_task(&self, task: Box<dyn SupervisedTask>) {
+    /// Rejects a second live task for the same worktree slug (M7d 1:1):
+    /// returns false and registers nothing in that case. Tasks without a
+    /// slug never collide.
+    pub fn register_task(&self, task: Box<dyn SupervisedTask>) -> bool {
         if let Ok(mut tasks) = self.tasks.lock() {
+            let dup = task
+                .slug()
+                .is_some_and(|sl| tasks.iter().any(|t| t.slug().is_some_and(|s| s == sl)));
+            if dup {
+                return false;
+            }
             tasks.push(task);
+            true
+        } else {
+            false
         }
+    }
+
+    /// Is a live task already owning `slug`? Drivers check this before
+    /// building backends so a duplicate open fails without side effects.
+    pub fn has_slug(&self, slug: &str) -> bool {
+        self.tasks
+            .lock()
+            .map(|tasks| tasks.iter().any(|t| t.slug().is_some_and(|sl| sl == slug)))
+            .unwrap_or(false)
     }
 
     /// Install (or replace) the kanban-lite sweeper.
@@ -566,6 +587,27 @@ mod tests {
         // Off-cadence ticks skip the sweeper.
         inbox.poll_fleet(&mut store, 31);
         assert_eq!(store.errors.len(), 1);
+    }
+
+    #[test]
+    fn register_task_rejects_duplicate_slug() {
+        let inbox = FleetInbox::new();
+        let mk = |slug: Option<&str>| Logged {
+            id: TaskId::new(),
+            owned_slug: slug.map(str::to_string),
+            log: Default::default(),
+        };
+        assert!(inbox.register_task(Box::new(mk(Some("wt-a")))));
+        assert!(inbox.has_slug("wt-a"));
+        assert!(!inbox.has_slug("wt-b"));
+        // Same slug: rejected, count unchanged.
+        assert!(!inbox.register_task(Box::new(mk(Some("wt-a")))));
+        assert_eq!(inbox.task_count(), 1);
+        // Different slug: fine. Slug-less tasks never collide.
+        assert!(inbox.register_task(Box::new(mk(Some("wt-b")))));
+        assert!(inbox.register_task(Box::new(mk(None))));
+        assert!(inbox.register_task(Box::new(mk(None))));
+        assert_eq!(inbox.task_count(), 4);
     }
 
     #[test]

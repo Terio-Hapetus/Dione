@@ -111,8 +111,20 @@ pub struct WorktreeInfo {
     pub detached: bool,
 }
 
+/// Shared base for new worktrees (M7d): prefer `origin/HEAD` (the remote
+/// default branch) when present locally, else fall back to `HEAD`.
+/// Never fetches — offline-safe by construction. A stale `origin/HEAD`
+/// is still better than whatever checkout happens to be checked out.
+pub async fn resolve_base(repo: &Path) -> &'static str {
+    match run_git(repo, &["rev-parse", "--verify", "origin/HEAD"]).await {
+        Ok(out) if !out.trim().is_empty() => "origin/HEAD",
+        _ => "HEAD",
+    }
+}
+
 /// Create a worktree at `<repo>/.ade-worktrees/<slug>` on branch
-/// `ade/<slug>`, then copy `.worktreeinclude` entries into it.
+/// `ade/<slug>` from the shared base ([`resolve_base`]), then copy
+/// `.worktreeinclude` entries into it.
 pub async fn create(repo: &Path, raw_slug: &str) -> Result<WorktreeRecord, WorktreeError> {
     let slug = normalize_slug(raw_slug);
     if slug.is_empty() {
@@ -126,9 +138,17 @@ pub async fn create(repo: &Path, raw_slug: &str) -> Result<WorktreeRecord, Workt
         return Err(WorktreeError::AlreadyExists(slug));
     }
     let branch = branch_name(&slug);
+    let base = resolve_base(repo).await;
     run_git(
         repo,
-        &["worktree", "add", &path.to_string_lossy(), "-b", &branch],
+        &[
+            "worktree",
+            "add",
+            &path.to_string_lossy(),
+            "-b",
+            &branch,
+            base,
+        ],
     )
     .await?;
     copy_worktreeinclude(repo, &path);

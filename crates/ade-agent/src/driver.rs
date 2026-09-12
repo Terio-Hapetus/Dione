@@ -72,6 +72,11 @@ fn open_registered_task(
     cwd: &Path,
     mut ws: Box<dyn WorkspaceProvider>,
 ) -> anyhow::Result<TaskId> {
+    // M7d 1:1 — one subtask per worktree. Fail before building backends
+    // so a duplicate open has no side effects (notably no stray shell).
+    if inbox.has_slug(&task.slug) {
+        anyhow::bail!("task already open for slug {:?}", task.slug);
+    }
     if !inbox.has_sweeper() {
         inbox.register_sweeper(Box::new(FleetSweeper::new()));
     }
@@ -214,6 +219,19 @@ mod tests {
         // Sweeper installed once, still quiet for fresh tasks.
         inbox.poll_fleet(&mut store, 30);
         assert!(store.errors.is_empty());
+    }
+
+    #[test]
+    fn duplicate_slug_open_fails_without_side_effects() {
+        let inbox = FleetInbox::new();
+        open_host_task(&inbox, "wt-a", "mock", "first").unwrap();
+        assert_eq!(inbox.task_count(), 1);
+        let err = open_host_task(&inbox, "wt-a", "mock", "second").unwrap_err();
+        assert!(err.to_string().contains("already open"));
+        assert_eq!(inbox.task_count(), 1);
+        // A fresh slug still opens.
+        open_host_task(&inbox, "wt-b", "mock", "other").unwrap();
+        assert_eq!(inbox.task_count(), 2);
     }
 
     #[test]

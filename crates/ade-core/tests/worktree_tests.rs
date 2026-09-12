@@ -44,6 +44,55 @@ fn cleanup(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+fn git_out(repo: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .expect("git must run");
+    assert!(out.status.success(), "git {args:?} failed");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[tokio::test]
+async fn resolve_base_falls_back_to_head() {
+    let repo = init_repo();
+    assert_eq!(worktree::resolve_base(&repo).await, "HEAD");
+    cleanup(&repo);
+}
+
+#[tokio::test]
+async fn create_pins_origin_head_when_present() {
+    let repo = init_repo();
+    // Fake remote over a local bare repo (no network): push A, then move
+    // local main to B without pushing — origin/HEAD stays at A.
+    let remote = repo.join("remote.git");
+    sh(&repo, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    sh(
+        &repo,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    sh(&repo, &["push", "-q", "origin", "main"]);
+    sh(&repo, &["remote", "set-head", "origin", "main"]);
+    std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "B"]);
+
+    assert_eq!(worktree::resolve_base(&repo).await, "origin/HEAD");
+    let r = worktree::create(&repo, "feat-base").await.unwrap();
+    // New branch starts at origin/HEAD (A), not at local HEAD (B).
+    let base_sha = git_out(&repo, &["rev-parse", "origin/HEAD"]);
+    let head_sha = git_out(&repo, &["rev-parse", "HEAD"]);
+    assert_ne!(base_sha, head_sha);
+    assert_eq!(git_out(&r.path, &["rev-parse", "HEAD"]), base_sha);
+    assert!(!r.path.join("b.txt").exists());
+
+    worktree::remove(&repo, "feat-base").await.unwrap();
+    sh(&repo, &["remote", "remove", "origin"]);
+    cleanup(&repo);
+}
+
 #[tokio::test]
 async fn create_adds_branch_and_dir() {
     let repo = init_repo();
