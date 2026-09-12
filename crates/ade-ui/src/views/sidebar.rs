@@ -104,9 +104,18 @@ impl AdeApp {
             });
             let remove_slug = slug.clone();
             let remove = cx.listener(move |this, _: &ClickEvent, _, _| {
+                if let Some(record) = this.store.worktrees.get(&remove_slug) {
+                    this.vm.stop(remove_slug.clone(), record.path.clone());
+                }
                 this.rt.send(Command::RemoveWorktree {
                     slug: remove_slug.clone(),
                 });
+            });
+            let open_slug = slug.clone();
+            let open = cx.listener(move |this, _: &ClickEvent, _, _| {
+                if let Some(record) = this.store.worktrees.get(&open_slug) {
+                    this.vm.ensure(open_slug.clone(), record.path.clone());
+                }
             });
             let bg: Hsla = if active {
                 rgba(0x2a3044ff).into()
@@ -136,6 +145,13 @@ impl AdeApp {
                                 }))
                                 .child(Label::new(format!("⑂ {slug}")).text_size(px(12.)))
                                 .children(self.vm_badge(&slug)),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("wt-open-{slug}")))
+                                .label("⏻")
+                                .xsmall()
+                                .compact()
+                                .on_click(open),
                         )
                         .child(
                             Button::new(SharedString::from(format!("wt-del-{slug}")))

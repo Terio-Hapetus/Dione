@@ -18,6 +18,7 @@ use gpui_component::{
 };
 
 use crate::views::terminal::TermState;
+use crate::vm_thread::VmThread;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum RightTab {
@@ -53,6 +54,9 @@ pub struct AdeApp {
     pub(crate) term_input: Entity<InputState>,
     /// Terminal search filter.
     pub(crate) term_query: Entity<InputState>,
+    /// VM manager background thread (W2). UI sends Ensure/Stop, drains
+    /// reports in the snapshot loop — never blocks.
+    pub(crate) vm: VmThread,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -118,6 +122,15 @@ impl AdeApp {
                         app.store = snap;
                         cx.notify();
                     }
+                    // VM reports: feed the Fleet badge without blocking.
+                    let mut vm_changed = false;
+                    for rep in app.vm.drain() {
+                        app.set_vm_state(rep.slug, rep.state);
+                        vm_changed = true;
+                    }
+                    if vm_changed {
+                        cx.notify();
+                    }
                     // Slow refresh: pick up agents.toml edits, newly
                     // installed binaries, and KVM hotplug without restart.
                     app.polls += 1;
@@ -137,10 +150,12 @@ impl AdeApp {
 
         let store = rt.snapshot();
         let (agent_names, agent_ok) = load_agent_statuses(default_agents_path().as_deref());
+        let vm = VmThread::spawn();
         Self {
             rt,
             store,
             input,
+            vm,
             term_input,
             term_query,
             right_tab: RightTab::Context,
@@ -165,8 +180,7 @@ impl AdeApp {
     }
 
     /// Record a workspace VM state for the Fleet badge.
-    /// Called by the VmManager thread (post-M5 Open-Workspace flow).
-    #[allow(dead_code)]
+    /// Fed by the VmManager thread via the snapshot loop (W2).
     pub(crate) fn set_vm_state(&mut self, slug: String, state: VmState) {
         self.vm_states.insert(slug, state);
     }
