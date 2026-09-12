@@ -25,10 +25,10 @@ pub trait VmBackend: Send {
     fn stop(&mut self, handle: &VmHandle) -> anyhow::Result<()>;
 }
 
-/// Returns true when `/dev/kvm` exists. No KVM → the app must fall back
-/// to Host mode with a banner, never crash.
+/// Returns true when `/dev/kvm` exists and is readable. No KVM → the
+/// app must fall back to Host mode with a banner, never crash.
 pub fn probe_kvm() -> bool {
-    Path::new("/dev/kvm").exists()
+    Path::new("/dev/kvm").exists() && std::fs::File::open("/dev/kvm").is_ok()
 }
 
 /// In-memory backend: instant `Missing → Ready` transitions, ephemeral
@@ -72,7 +72,9 @@ impl VmBackend for MockBackend {
         Ok(SshInfo {
             host: "127.0.0.1".into(),
             port,
-            user: "vm".into(),
+            // Matches the cloud-init guest user (seed.rs); the live CH
+            // backend reports the same — never drift back to "vm".
+            user: "ubuntu".into(),
         })
     }
 
@@ -110,7 +112,7 @@ mod tests {
         assert_eq!(b.state_of(&h), VmState::Ready);
         let ssh = b.wait_ssh(&h).unwrap();
         assert_eq!(ssh.host, "127.0.0.1");
-        assert_eq!(ssh.user, "vm");
+        assert_eq!(ssh.user, "ubuntu");
         b.stop(&h).unwrap();
         assert_eq!(b.state_of(&h), VmState::Stopped);
         // Double stop is an error, not a silent no-op.
