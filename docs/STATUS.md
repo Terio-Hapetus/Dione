@@ -10,10 +10,22 @@ M5-live prep DONE (probe readable, user ubuntu, image max-time).
 M7a DONE (per-task retry budget + error→sweep→block chain, Host-only).
 M7b-core DONE (Blocked persist + untrack + RetryTask, chưa UI).
 M7b-UI DONE (badge + nút ↻ row/strip + Xvfb smoke).
-Next: M7c (handoff minimal: parent + summary), rồi M7d.
+M7c DONE (handoff minimal: parent + summary, data-only UI).
+Next: M7d (base origin/HEAD offline-safe + cấm trùng slug).
 
 ## Last commit (đã verify)
 
+- M7c (`2b73118`, data-only UI):
+  - `Task { parent, summary }` + `with_parent/with_summary` + `child()`
+    (id/budget mới, kế thừa summary + limit; grandchild trỏ cha trực tiếp)
+  - `handoff_summary` (3 dòng cuối `role: text`, cap 500) — Supervisor tự
+    snapshot khi vừa chuyển `Blocked`, không đè summary tay
+  - Seam `TaskHandoff` + `SupervisedTask::handoff()` + driver
+    `open_child_task`; Reclaim vẫn log-only (auto-respawn chờ callsite
+    production `rt.fleet()`)
+  - Tests: child/parent/summary, tail+cap, snapshot/đè-tay, seam, child flow
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-workspace
+  -p ade-agent -p ade-core` xanh.
 - M7b-UI (`aabacc1`):
   - Pure helpers `fleet_dot` (blocked → đỏ, đè mọi state) + `blocked_task_in`
     (parse TaskId từ `fleet: blocked {id}`) + 3 tests
