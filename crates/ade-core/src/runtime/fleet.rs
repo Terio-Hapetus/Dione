@@ -23,9 +23,21 @@ pub trait SupervisedTask: Send {
     fn slug(&self) -> Option<&str> {
         None
     }
+    /// Retry budget for the sweeper (M7a). Default matches
+    /// `ade-workspace`'s `DEFAULT_FAILURE_LIMIT`; `Supervisor` overrides
+    /// it from its `Task`.
+    fn failure_limit(&self) -> u8 {
+        2
+    }
     /// Drain new backend events into the store. Must be non-blocking:
     /// it runs inside the runtime `select!` loop.
     fn tick(&mut self, store: &mut Store);
+    /// Backend error hits since the last call (M7a retry budget): one
+    /// entry per observed `Error` event. Default: no errors. The inbox
+    /// forwards these to the sweeper after every drain.
+    fn drain_errors(&mut self) -> Vec<TaskId> {
+        Vec::new()
+    }
     /// Record which session feeds this task. Default: ignore.
     fn bind_session(&mut self, _session_id: &str) {}
     /// Forget a retired session. Default: ignore.
@@ -47,6 +59,11 @@ pub enum SweepAction {
 /// `ade-core`'s own transcript key.
 pub trait TaskSweeper: Send {
     fn track_task(&mut self, task: TaskId);
+    /// Track with an explicit retry budget (M7a). Default keeps the old
+    /// behavior so existing sweepers compile untouched.
+    fn track_task_with_limit(&mut self, task: TaskId, _limit: u8) {
+        self.track_task(task);
+    }
     fn untrack_task(&mut self, task: &TaskId);
     fn note_task_error(&mut self, task: &TaskId);
     fn sweep(&self) -> Vec<SweepAction>;
@@ -79,6 +96,12 @@ impl std::fmt::Debug for dyn SupervisedTask {
     }
 }
 
+impl Default for FleetInbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FleetInbox {
     pub fn new() -> Self {
         Self {
@@ -107,11 +130,24 @@ impl FleetInbox {
         self.sweeper.lock().map(|sw| sw.is_some()).unwrap_or(false)
     }
 
-    /// Hook A body: drain tasks after reconcile, sweep ~every 60s.
+    /// Hook A body: drain tasks after reconcile, forward backend error
+    /// hits to the sweeper (M7a retry budget), sweep ~every 60s.
     /// Public so drivers/tests can drive the fleet without a server.
     pub fn poll_fleet(&self, store: &mut Store, tick: u64) {
+        let mut error_hits = Vec::new();
         if let Ok(mut tasks) = self.tasks.lock() {
             drain_fleet(&mut tasks, store);
+            for t in tasks.iter_mut() {
+                error_hits.extend(t.drain_errors());
+            }
+        }
+        if !error_hits.is_empty()
+            && let Ok(mut sw) = self.sweeper.lock()
+            && let Some(sw) = sw.as_mut()
+        {
+            for id in &error_hits {
+                sw.note_task_error(id);
+            }
         }
         if sweep_due(tick) {
             let actions = self
@@ -192,7 +228,7 @@ pub(crate) fn bind_new_session(
         if t.slug().is_some_and(|sl| sl == scope) {
             t.bind_session(session_id);
             if let Some(sw) = sweeper.as_mut() {
-                sw.track_task(t.task_id());
+                sw.track_task_with_limit(t.task_id(), t.failure_limit());
             }
         }
     }
@@ -453,5 +489,94 @@ mod tests {
         assert!(got.contains(&"bind:s1".to_string()));
         assert!(!got.iter().any(|l| l == "bind:s-root"));
         assert!(got.contains(&"unbind:s1".to_string()));
+    }
+
+    /// Task reporting backend error hits; the inbox must forward them.
+    struct ErrTask {
+        id: TaskId,
+        hits: usize,
+    }
+
+    impl SupervisedTask for ErrTask {
+        fn task_id(&self) -> TaskId {
+            self.id
+        }
+
+        fn tick(&mut self, _store: &mut Store) {}
+
+        fn drain_errors(&mut self) -> Vec<TaskId> {
+            let out = vec![self.id; self.hits];
+            self.hits = 0;
+            out
+        }
+    }
+
+    struct RecSweeper {
+        notes: Arc<Mutex<Vec<TaskId>>>,
+        tracked: Arc<Mutex<Vec<(TaskId, u8)>>>,
+    }
+
+    impl TaskSweeper for RecSweeper {
+        fn track_task(&mut self, task: TaskId) {
+            self.tracked.lock().unwrap().push((task, 2));
+        }
+        fn track_task_with_limit(&mut self, task: TaskId, limit: u8) {
+            self.tracked.lock().unwrap().push((task, limit));
+        }
+        fn untrack_task(&mut self, _task: &TaskId) {}
+        fn note_task_error(&mut self, task: &TaskId) {
+            self.notes.lock().unwrap().push(*task);
+        }
+        fn sweep(&self) -> Vec<SweepAction> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn poll_fleet_forwards_backend_errors_to_sweeper() {
+        let inbox = FleetInbox::new();
+        let id = TaskId::new();
+        inbox.register_task(Box::new(ErrTask { id, hits: 2 }));
+        let notes: Arc<Mutex<Vec<TaskId>>> = Default::default();
+        inbox.register_sweeper(Box::new(RecSweeper {
+            notes: Arc::clone(&notes),
+            tracked: Default::default(),
+        }));
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(*notes.lock().unwrap(), vec![id, id]);
+        // Drained: a second poll forwards nothing new.
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(notes.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn bind_new_forwards_failure_limit() {
+        struct LimTask {
+            id: TaskId,
+            limit: u8,
+        }
+        impl SupervisedTask for LimTask {
+            fn task_id(&self) -> TaskId {
+                self.id
+            }
+            fn slug(&self) -> Option<&str> {
+                Some("wt-lim")
+            }
+            fn failure_limit(&self) -> u8 {
+                self.limit
+            }
+            fn tick(&mut self, _store: &mut Store) {}
+        }
+        let inbox = FleetInbox::new();
+        let id = TaskId::new();
+        inbox.register_task(Box::new(LimTask { id, limit: 5 }));
+        let tracked: Arc<Mutex<Vec<(TaskId, u8)>>> = Default::default();
+        inbox.register_sweeper(Box::new(RecSweeper {
+            notes: Default::default(),
+            tracked: Arc::clone(&tracked),
+        }));
+        inbox.bind_new("wt-lim", "s1");
+        assert_eq!(*tracked.lock().unwrap(), vec![(id, 5)]);
     }
 }

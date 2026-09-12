@@ -35,6 +35,10 @@ impl TaskSweeper for FleetSweeper {
         self.inner.track_id(task);
     }
 
+    fn track_task_with_limit(&mut self, task: TaskId, limit: u8) {
+        self.inner.track_id_with_limit(task, limit);
+    }
+
     fn untrack_task(&mut self, task: &TaskId) {
         self.inner.untrack(task);
     }

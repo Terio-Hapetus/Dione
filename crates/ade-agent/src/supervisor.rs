@@ -9,18 +9,25 @@ use ade_core::state::Store;
 use ade_core::transcript::TaskId;
 use ade_workspace::{Task, WorkspaceProvider};
 
-use super::agent::{AgentBackend, apply_agent_event};
+use super::agent::{AgentBackend, AgentEvent, AgentStatus, apply_agent_event};
 
 /// Owns the backend and the workspace face for a single [`Task`].
 pub struct Supervisor {
     backend: Box<dyn AgentBackend>,
     ws: Box<dyn WorkspaceProvider>,
     task: Task,
+    /// Backend `Error` hits since the last inbox drain (M7a retry budget).
+    error_hits: Vec<TaskId>,
 }
 
 impl Supervisor {
     pub fn new(task: Task, backend: Box<dyn AgentBackend>, ws: Box<dyn WorkspaceProvider>) -> Self {
-        Self { backend, ws, task }
+        Self {
+            backend,
+            ws,
+            task,
+            error_hits: Vec::new(),
+        }
     }
 
     pub fn task(&self) -> &Task {
@@ -41,11 +48,28 @@ impl Supervisor {
     /// Drain new backend events into the store. Idempotent: re-tick with
     /// an empty queue writes nothing. Uses `collect` (not `poll`) so
     /// read-side backends (`OpencodeAdapter`) contribute their cursor
-    /// stream too.
+    /// stream too. `Error` statuses are also recorded for the M7a retry
+    /// budget (forwarded via `drain_errors`); successes clear the streak.
     pub fn tick(&mut self, store: &mut Store) {
         for ev in self.backend.collect(store) {
+            match &ev {
+                AgentEvent::Status(id, AgentStatus::Error { .. }) => {
+                    self.error_hits.push(*id);
+                    self.task.note_failure();
+                }
+                AgentEvent::Status(_, AgentStatus::Idle)
+                | AgentEvent::Status(_, AgentStatus::Done) => {
+                    self.task.note_success();
+                }
+                _ => {}
+            }
             apply_agent_event(store, &ev);
         }
+    }
+
+    /// Backend error hits since the last call; drains the buffer.
+    pub fn drain_errors(&mut self) -> Vec<TaskId> {
+        std::mem::take(&mut self.error_hits)
     }
 
     pub fn workspace(&mut self) -> &mut dyn WorkspaceProvider {
@@ -64,8 +88,16 @@ impl ade_core::runtime::fleet::SupervisedTask for Supervisor {
         Some(&self.task.slug)
     }
 
+    fn failure_limit(&self) -> u8 {
+        self.task.failure_limit
+    }
+
     fn tick(&mut self, store: &mut Store) {
         Supervisor::tick(self, store);
+    }
+
+    fn drain_errors(&mut self) -> Vec<TaskId> {
+        Supervisor::drain_errors(self)
     }
 
     fn bind_session(&mut self, session_id: &str) {
@@ -179,5 +211,105 @@ mod tests {
         // Second tick: cursor dedup, no duplicate messages.
         sup.tick(&mut store);
         assert_eq!(store.transcripts.get(&sid_task).map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn error_events_feed_retry_budget_and_drain() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use ade_workspace::TaskStatus;
+
+        // Fresh supervisor: spawn drains with no errors, stays Active.
+        let (mut sup, _id) = supervisor_with_prompt("hello");
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        assert!(sup.drain_errors().is_empty());
+        assert_eq!(sup.task().status, TaskStatus::Active);
+
+        // Two injected errors hit the budget (limit 2) and block the task.
+        let task2 = Task::new("feat-e2", "mock").with_failure_limit(2);
+        let id2 = task2.id;
+        let mut backend2 = MockAgent::new();
+        backend2.emit(AgentEvent::Status(
+            id2,
+            AgentStatus::Error { msg: "boom".into() },
+        ));
+        backend2.emit(AgentEvent::Status(
+            id2,
+            AgentStatus::Error {
+                msg: "boom2".into(),
+            },
+        ));
+        let mut sup2 = Supervisor::new(task2, Box::new(backend2), Box::new(MockWorkspace::new()));
+        sup2.tick(&mut store);
+        assert_eq!(sup2.drain_errors(), vec![id2, id2]);
+        assert_eq!(sup2.task().status, TaskStatus::Blocked);
+        // Drained buffer stays empty.
+        assert!(sup2.drain_errors().is_empty());
+
+        // One error under a limit of 3 is Retrying; success clears it.
+        let task3 = Task::new("feat-e3", "mock").with_failure_limit(3);
+        let id3 = task3.id;
+        let mut backend3 = MockAgent::new();
+        backend3.emit(AgentEvent::Status(
+            id3,
+            AgentStatus::Error {
+                msg: "flaky".into(),
+            },
+        ));
+        let mut sup3 = Supervisor::new(task3, Box::new(backend3), Box::new(MockWorkspace::new()));
+        sup3.tick(&mut store);
+        assert_eq!(sup3.drain_errors(), vec![id3]);
+        assert_eq!(sup3.task().status, TaskStatus::Retrying);
+    }
+
+    #[test]
+    fn seam_reports_task_failure_limit() {
+        use ade_core::runtime::fleet::SupervisedTask;
+
+        let (sup, _) = supervisor_with_prompt("hello");
+        assert_eq!(SupervisedTask::failure_limit(&sup), 2);
+        let task = Task::new("feat-lim", "mock").with_failure_limit(4);
+        let lim = Supervisor::new(
+            task,
+            Box::new(MockAgent::new()),
+            Box::new(MockWorkspace::new()),
+        );
+        assert_eq!(SupervisedTask::failure_limit(&lim), 4);
+    }
+
+    #[test]
+    fn inbox_chain_blocks_erroring_task_on_sweep_tick() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use crate::sweeper::FleetSweeper;
+        use ade_core::runtime::FleetInbox;
+        use ade_workspace::Task;
+
+        let task = Task::new("wt-err", "mock"); // default limit 2
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "x".into() },
+        ));
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "y".into() },
+        ));
+        let inbox = FleetInbox::new();
+        inbox.register_sweeper(Box::new(FleetSweeper::new()));
+        inbox.register_task(Box::new(Supervisor::new(
+            task,
+            Box::new(backend),
+            Box::new(MockWorkspace::new()),
+        )));
+        inbox.bind_new("wt-err", "s1");
+        let mut store = Store::default();
+        // Tick 1 drains backend errors into the sweeper; nothing surfaces yet.
+        inbox.poll_fleet(&mut store, 1);
+        assert!(store.errors.is_empty());
+        // Tick 30 runs the sweep: 2 errors hit the default budget → blocked.
+        inbox.poll_fleet(&mut store, 30);
+        assert_eq!(store.errors.len(), 1);
+        assert!(store.errors[0].contains("blocked"));
     }
 }
