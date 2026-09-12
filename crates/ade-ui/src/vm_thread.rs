@@ -55,7 +55,7 @@ enum Backend {
 /// Workspace root for a checkout: parent of `.ade-worktrees` when nested,
 /// else the path itself. VMs converge to 1-per-workspace (M7); until then
 /// each worktree maps to its repo this way.
-fn workspace_root(path: &Path) -> PathBuf {
+pub(crate) fn workspace_root(path: &Path) -> PathBuf {
     let mut cur: Option<&Path> = Some(path);
     while let Some(p) = cur {
         if p.file_name().is_some_and(|n| n == ".ade-worktrees")

@@ -25,6 +25,7 @@ pub(crate) enum RightTab {
     Context,
     Inspector,
     Diff,
+    File,
 }
 
 pub struct AdeApp {
@@ -46,6 +47,8 @@ pub struct AdeApp {
     /// Cherry-picked hunks (M8a): `(session_id, file, hunk_idx)` selected
     /// in the Diff tab, applied to the main checkout on demand.
     pub(crate) hunk_picks: BTreeSet<(String, String, usize)>,
+    /// File open in the viewer tab (M8e, text-first).
+    pub(crate) open_file: Option<crate::views::file::OpenFile>,
     /// KVM capability at startup. False → Host-mode banner (Lab 6).
     pub(crate) vm_available: bool,
     /// Workspace slug → VM lifecycle state. Filled by the VmManager
@@ -194,6 +197,7 @@ impl AdeApp {
             annotate_anchor: None,
             reply_target: None,
             hunk_picks: BTreeSet::new(),
+            open_file: None,
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
             vm_ssh: BTreeMap::new(),

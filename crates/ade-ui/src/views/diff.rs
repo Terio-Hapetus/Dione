@@ -65,11 +65,37 @@ impl AdeApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let name = d.file.clone().unwrap_or_else(|| "(unknown)".into());
-        let mut block = div().flex().flex_col().gap_0p5().child(Label::new(format!(
+        let title = format!(
             "{name}  +{} −{}",
             d.additions.unwrap_or(0.),
             d.deletions.unwrap_or(0.)
-        )));
+        );
+        // Single-file blocks open in the viewer tab (M8e). Multi-file
+        // git blocks (`"a.rs, b.rs"`) stay static — open files one by one.
+        let openable = name != "(unknown)" && name != "(working tree)" && !name.contains(", ");
+        let mut block = div().flex().flex_col().gap_0p5().child({
+            let label = Label::new(title);
+            if openable {
+                let open_sid = sid.to_string();
+                let open_name = name.clone();
+                let open = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                    let scope = app.store.scope_of(&open_sid).to_string();
+                    app.open_file = Some(crate::views::file::open_path(
+                        &app.store, &scope, &open_name,
+                    ));
+                    app.right_tab = crate::app::RightTab::File;
+                    cx.notify();
+                });
+                div()
+                    .id(SharedString::from(format!("file-open-{sid}-{file_idx}")))
+                    .cursor_pointer()
+                    .on_click(open)
+                    .child(label)
+                    .into_any_element()
+            } else {
+                div().child(label).into_any_element()
+            }
+        });
         if let Some(patch) = d.patch.clone() {
             let mut lines = div().flex().flex_col();
             // Track which @@ hunk each rendered row belongs to so @@ rows
