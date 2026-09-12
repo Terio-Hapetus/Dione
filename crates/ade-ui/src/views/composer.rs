@@ -12,6 +12,7 @@ impl AdeApp {
         let busy = self.store.is_busy();
         let annotating = self.annotate_target.clone();
         let anchoring = self.annotate_anchor.clone();
+        let replying = self.reply_target.clone();
 
         let send = cx.listener(|this, _: &ClickEvent, window, cx| this.send_prompt(window, cx));
         let annotate =
@@ -58,6 +59,24 @@ impl AdeApp {
                         .text_color(warn_color()),
                     )
             }))
+            .children(replying.clone().map(|n| {
+                let loc = match n.end_line {
+                    Some(e) if e > n.line => format!("{}-{}", n.line, e),
+                    _ => format!("{}", n.line),
+                };
+                div()
+                    .flex()
+                    .items_center()
+                    .px_3()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(warn_color())
+                    .child(
+                        Label::new(format!("↳ reply on {}:{loc} — type + Enter", n.file))
+                            .text_size(px(11.))
+                            .text_color(warn_color()),
+                    )
+            }))
             .child(
                 div()
                     .flex()
@@ -76,7 +95,7 @@ impl AdeApp {
                                 .on_click(abort)
                                 .into_any_element(),
                         ]
-                    } else if annotating.is_some() {
+                    } else if annotating.is_some() || replying.is_some() {
                         vec![
                             Button::new("annotate-send")
                                 .label("Annotate ⏎")

@@ -315,6 +315,7 @@ fn format_review_notes_renders_items() {
             line: 12,
             end_line: None,
             text: "rename this".into(),
+            replies: vec!["sure, done".into()],
         },
         DiffNote {
             session_id: "ses_1".into(),
@@ -322,6 +323,7 @@ fn format_review_notes_renders_items() {
             line: 3,
             end_line: Some(7),
             text: "add test".into(),
+            replies: Vec::new(),
         },
         DiffNote {
             session_id: "ses_1".into(),
@@ -329,10 +331,12 @@ fn format_review_notes_renders_items() {
             line: 5,
             end_line: Some(5),
             text: "single".into(),
+            replies: Vec::new(),
         },
     ];
     let body = format_review_notes(&notes);
     assert!(body.contains("a.rs:12 — rename this"));
+    assert!(body.contains("↳ sure, done"));
     assert!(body.contains("b.rs:3-7 — add test"));
     assert!(body.contains("c.rs:5 — single"));
 
@@ -361,6 +365,26 @@ fn format_review_notes_renders_items() {
     );
     assert_eq!(range5, None);
     assert_eq!(anchor5, Some(("s".to_string(), "g".to_string(), 20u32)));
+}
+
+#[test]
+fn append_reply_targets_note_by_value() {
+    use ade_core::state::{DiffNote, append_reply};
+
+    let mut notes = vec![DiffNote {
+        session_id: "s".into(),
+        file: "a.rs".into(),
+        line: 1,
+        end_line: None,
+        text: "fix".into(),
+        replies: Vec::new(),
+    }];
+    let target = notes[0].clone();
+    assert!(append_reply(&mut notes, &target, "on it".into()));
+    assert_eq!(notes[0].replies, vec!["on it".to_string()]);
+    // Stale target (note edited/deleted meanwhile) fails cleanly.
+    assert!(!append_reply(&mut notes, &target, "late".into()));
+    assert!(!append_reply(&mut [], &target, "empty".into()));
 }
 
 #[test]

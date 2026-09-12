@@ -53,6 +53,8 @@ pub struct DiffNote {
     /// Multi-line range end (M8c): `None` (or `<= line`) = single line.
     pub end_line: Option<u32>,
     pub text: String,
+    /// Thread replies (M8c2): follow-ups appended under the note.
+    pub replies: Vec<String>,
 }
 
 /// Format review notes as a prompt body for the agent.
@@ -64,8 +66,23 @@ pub fn format_review_notes(notes: &[DiffNote]) -> String {
             _ => format!("{}", n.line),
         };
         out.push_str(&format!("- {}:{} — {}\n", n.file, loc, n.text));
+        for r in &n.replies {
+            out.push_str(&format!("  ↳ {r}\n"));
+        }
     }
     out
+}
+
+/// Append a reply to the note equal to `target` (M8c2, pure).
+/// Returns false when the target is gone (deleted meanwhile).
+pub fn append_reply(notes: &mut [DiffNote], target: &DiffNote, reply: String) -> bool {
+    match notes.iter_mut().find(|n| *n == target) {
+        Some(n) => {
+            n.replies.push(reply);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Anchor state machine for two-click range select (M8c, pure).

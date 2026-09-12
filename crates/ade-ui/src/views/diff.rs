@@ -198,7 +198,14 @@ impl AdeApp {
                 app.diff_notes.retain(|n| n != &target_for_drop);
                 cx.notify();
             });
-            block = block.child(
+            let target_for_reply = target.clone();
+            let reply = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                app.reply_target = Some(target_for_reply.clone());
+                app.annotate_target = None;
+                app.annotate_anchor = None;
+                cx.notify();
+            });
+            let mut note_block = div().flex().flex_col().gap_0p5().child(
                 div()
                     .flex()
                     .items_center()
@@ -218,6 +225,16 @@ impl AdeApp {
                     )
                     .child(
                         Button::new(SharedString::from(format!(
+                            "note-reply-{}-{}-{}",
+                            target.session_id, target.file, target.line
+                        )))
+                        .label("Reply")
+                        .xsmall()
+                        .compact()
+                        .on_click(reply),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!(
                             "note-del-{}-{}-{}",
                             target.session_id, target.file, target.line
                         )))
@@ -227,6 +244,16 @@ impl AdeApp {
                         .on_click(drop),
                     ),
             );
+            for r in &note.replies {
+                note_block = note_block.child(
+                    div().pl_6().child(
+                        Label::new(format!("↳ {}", truncate(r, 120)))
+                            .text_size(px(11.))
+                            .text_color(muted_color()),
+                    ),
+                );
+            }
+            block = block.child(note_block);
         }
         block
     }
