@@ -232,7 +232,8 @@ mod tests {
                 Ok(SshInfo {
                     host: "127.0.0.1".into(),
                     port: 4222,
-                    user: "vm".into(),
+                    // Same as the live guest user (seed.rs).
+                    user: "ubuntu".into(),
                 })
             } else {
                 Err(VmError::UnknownHandle(h.id.clone()).into())

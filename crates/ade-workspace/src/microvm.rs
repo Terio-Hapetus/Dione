@@ -288,7 +288,8 @@ mod tests {
         SshTarget {
             host: "127.0.0.1".into(),
             port: 4222,
-            user: "vm".into(),
+            // Same as the live guest user (ade-vm seed.rs).
+            user: "ubuntu".into(),
             key_path: PathBuf::from("/tmp/id"),
         }
     }
@@ -310,7 +311,7 @@ mod tests {
         assert_eq!(out.stdout, "hello\n");
         let argv = fake.args();
         assert!(argv.contains("-p 4222"), "{argv}");
-        assert!(argv.contains("vm@127.0.0.1"), "{argv}");
+        assert!(argv.contains("ubuntu@127.0.0.1"), "{argv}");
         assert!(argv.contains("cd /repo && echo 'hi there'"), "{argv}");
         // Provider reports the guest (unlike Host's None).
         assert_eq!(vm.ssh_info().unwrap().port, 4222);
@@ -396,7 +397,7 @@ mod tests {
         assert!(argv.contains("-i /tmp/id"), "{argv}");
         assert!(argv.contains("-p 4222"), "{argv}");
         assert!(argv.contains("-L 4105:localhost:3000"), "{argv}");
-        assert!(argv.contains("vm@127.0.0.1"), "{argv}");
+        assert!(argv.contains("ubuntu@127.0.0.1"), "{argv}");
         sh.kill().unwrap();
     }
 
