@@ -17,6 +17,45 @@ pub(crate) struct FileDiffRow {
     patch: Option<String>,
 }
 
+impl FileDiffRow {
+    fn git_block(file: String, patch: String) -> Self {
+        Self {
+            file: Some(file),
+            additions: None,
+            deletions: None,
+            patch: Some(patch),
+        }
+    }
+}
+
+/// Rows for one diff value (pure: unit-tested). Legacy wire shape is a
+/// `FileDiffRow` array; git-shape (`GitDiff::to_json`) carries a single
+/// `raw` patch — surfaced as one block so annotate + cherry-pick work
+/// on it. Anything else renders as no rows.
+pub(crate) fn file_rows(value: &serde_json::Value) -> Vec<FileDiffRow> {
+    if let Ok(rows) = serde_json::from_value::<Vec<FileDiffRow>>(value.clone())
+        && !rows.is_empty()
+    {
+        return rows;
+    }
+    let raw = value.get("raw").and_then(|r| r.as_str()).unwrap_or("");
+    if raw.trim().is_empty() {
+        return Vec::new();
+    }
+    let file = value
+        .get("files")
+        .and_then(|f| f.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "(working tree)".to_string());
+    vec![FileDiffRow::git_block(file, raw.to_string())]
+}
+
 impl AdeApp {
     pub(crate) fn file_diff_block(
         &self,
@@ -267,9 +306,7 @@ impl AdeApp {
                 let Some(value) = self.store.diffs.get(&sid) else {
                     continue;
                 };
-                let Ok(rows) = serde_json::from_value::<Vec<FileDiffRow>>(value.clone()) else {
-                    continue;
-                };
+                let rows = file_rows(value);
                 section = section.child(
                     Label::new(format!("{} file(s) — click a line to annotate", rows.len()))
                         .text_size(px(11.))
@@ -282,5 +319,46 @@ impl AdeApp {
             col = col.child(section);
         }
         col.into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // NOTE: same pitfall as vm_badge — no `use super::*`; the file's
+    // `use gpui::*` glob would shadow builtin `#[test]`.
+    use serde_json::json;
+
+    use crate::views::diff::file_rows;
+
+    #[test]
+    fn legacy_array_passes_through() {
+        let v = json!([
+            {"file": "a.rs", "additions": 1.0, "deletions": 0.0, "patch": "@@ -1 +1 @@\n+x"},
+            {"file": "b.rs", "patch": "@@ -2 +2 @@\n+y"},
+        ]);
+        let rows = file_rows(&v);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].file.as_deref(), Some("a.rs"));
+        assert!(rows[0].patch.as_deref().is_some_and(|p| p.contains("+x")));
+        assert_eq!(rows[1].additions, None);
+    }
+
+    #[test]
+    fn git_shape_becomes_one_block() {
+        let v = json!({"source": "git", "files": ["a.rs", "b.rs"], "raw": "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-x\n+y"});
+        let rows = file_rows(&v);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].file.as_deref(), Some("a.rs, b.rs"));
+        assert!(rows[0].patch.as_deref().is_some_and(|p| p.contains("@@")));
+        // Empty file list falls back to a working-tree label.
+        let v2 = json!({"source": "git", "files": [], "raw": "@@ -1 +1 @@\n+z"});
+        assert_eq!(file_rows(&v2)[0].file.as_deref(), Some("(working tree)"));
+    }
+
+    #[test]
+    fn garbage_renders_no_rows() {
+        assert!(file_rows(&json!([])).is_empty());
+        assert!(file_rows(&json!({"source": "git", "files": [], "raw": "  \n"})).is_empty());
+        assert!(file_rows(&json!({"nope": 1})).is_empty());
     }
 }
