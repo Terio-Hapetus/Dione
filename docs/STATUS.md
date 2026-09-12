@@ -11,10 +11,21 @@ M7a DONE (per-task retry budget + error→sweep→block chain, Host-only).
 M7b-core DONE (Blocked persist + untrack + RetryTask, chưa UI).
 M7b-UI DONE (badge + nút ↻ row/strip + Xvfb smoke).
 M7c DONE (handoff minimal: parent + summary, data-only UI).
-Next: M7d (base origin/HEAD offline-safe + cấm trùng slug).
+M7d DONE (base origin/HEAD offline-safe + cấm trùng slug).
+M7 CLOSED (retry budget + handoff + hygiene, Host-only).
+Next: M8 (Review++) hoặc live KVM lần đầu (Lab 2/3).
 
 ## Last commit (đã verify)
 
+- M7d (`44eec2d`, Host-only, offline-safe):
+  - `worktree::resolve_base`: `origin/HEAD` nếu có local, fallback `HEAD`
+    (không fetch); `create()` pin `worktree add -b <branch> <base>`
+  - `FleetInbox::{has_slug, register_task -> bool}` + driver bail
+    `task already open` trước khi dựng backend (không side-effect)
+  - Tests: pin-base qua remote bare local (A vs B), fallback HEAD,
+    dup slug inbox + driver
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-core
+  -p ade-agent -p ade-workspace` xanh (worktree 9/9).
 - M7c (`2b73118`, data-only UI):
   - `Task { parent, summary }` + `with_parent/with_summary` + `child()`
     (id/budget mới, kế thừa summary + limit; grandchild trỏ cha trực tiếp)

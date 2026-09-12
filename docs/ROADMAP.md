@@ -75,11 +75,11 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [ ] Còn lại: Open-Workspace VM-thread wiring (`VmManager` → UI,
       `set_vm_state`/banner hết dead, SSH tab vào guest) + live KVM
 
-## M7 — Fleet reliability (học Hermes kanban)
+## M7 — Fleet reliability (học Hermes kanban) ✅ done (Host-only)
 
-- [ ] Retry budget + circuit breaker (`failure_limit=2 → blocked`)
-- [ ] Structured handoff `summary/metadata + parent link`
-- [ ] Worktree hygiene: base `origin/HEAD`, 1 subtask = 1 worktree riêng
+- [x] Retry budget + circuit breaker (`failure_limit=2 → blocked`, per-task)
+- [x] Structured handoff `summary + parent link` (data-only UI)
+- [x] Worktree hygiene: base `origin/HEAD` (offline-safe), 1 subtask = 1 worktree riêng
 
 ## M8 — Review++ (học Orca aggregator + Codex review queue)
 
