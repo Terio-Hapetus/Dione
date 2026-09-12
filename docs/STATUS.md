@@ -9,10 +9,19 @@ M6-VM W1–W3 DONE (driver provider ngoài, VmManager-thread, SSH tab).
 M5-live prep DONE (probe readable, user ubuntu, image max-time).
 M7a DONE (per-task retry budget + error→sweep→block chain, Host-only).
 M7b-core DONE (Blocked persist + untrack + RetryTask, chưa UI).
-Next: M7b-UI (badge + nút ↻ row/strip + Xvfb smoke), rồi M7c/d.
+M7b-UI DONE (badge + nút ↻ row/strip + Xvfb smoke).
+Next: M7c (handoff minimal: parent + summary), rồi M7d.
 
 ## Last commit (đã verify)
 
+- M7b-UI (`aabacc1`):
+  - Pure helpers `fleet_dot` (blocked → đỏ, đè mọi state) + `blocked_task_in`
+    (parse TaskId từ `fleet: blocked {id}`) + 3 tests
+  - Nút `↻` mỗi worktree row bị blocked (gửi `Command::RetryTask`) + nút
+    `↻ retry` ở error strip (resolve slug từ message → `store.blocked`;
+    tự ẩn sau retry)
+  - Verified: `cargo test -p ade-ui` 13 passed + Xvfb smoke (cửa sổ
+    `ADE — Agentic IDE` 1440x900 hiện, log sạch)
 - M7b-core (`3427842`, Host-only, chưa UI):
   - `Store.blocked: BTreeMap<TaskId, slug>` + `mark/is/clear_blocked_by_slug`
     (in-memory; restart rebuild từ sweep mới)
