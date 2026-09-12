@@ -34,10 +34,26 @@ cargo test -p ade-vm --lib   # chưa KVM cũng xanh (Mock + fakes)
 - Timeout SSH: kiểm tra image đã pull? key ephemeral đã bơm? Xem
   `WORKSPACE-VM.md#boot-sequence` bước 3–4.
 
-## Lab 3: mount thấy file 2 chiều (cần KVM + M6 SSH tab — hiện BLOCKED)
+### Live lần đầu — checklist (chạy trên máy `/dev/kvm`)
 
-> SSH tab vào VM là việc M6 (`ROADMAP.md` M6 còn `[ ]`). Tạm thời thay
-> bằng live test gate env ở Lab 2; Lab 3 tay chỉ chạy được sau M6.
+1. `ls -l /dev/kvm` phải readable (không thì app fallback Host mode).
+2. Binaries: `which cloud-hypervisor virtiofsd genisoimage ssh curl
+   sha256sum ssh-keygen` — thiếu cái nào thì live fail ở bước đó.
+3. Assets (1 trong 2): `ADE_VM_KERNEL` + `ADE_VM_IMAGE` trỏ file local,
+   hoặc `ADE_VM_*_URL` (+`_SHA256`) để first-boot download vào
+   `~/.local/share/ade/vm/` (curl `--max-time` 600s mặc định).
+4. Chạy live test, đọc lỗi theo lớp: assets → spawn binaries →
+   `api.sock` → `vm.create/boot` (xem body daemon) → ssh-timeout
+   (seed socat/sshd, user `ubuntu`, `BatchMode`) → mount 2 chiều.
+5. Flag virtiofsd/vsock socket/cmdline root/user nếu sai thì sửa code
+   (có NOTE trong `ch.rs`) rồi chạy lại — đừng sửa test cho qua.
+6. `ADE_LIVE_KIT=1` hiện chưa wired test nào — kit mới chỉ có
+   fake-guest tests; live kit là việc riêng sau live VM xanh.
+
+## Lab 3: mount thấy file 2 chiều (cần KVM + live guest — SSH tab đã có)
+
+> SSH tab đã nối guest ở W3 (toggle `Term` khi badge `ready`, endpoint
+> hiện trong badge để SSH tay). Lab này mở khi live Lab 2 xanh.
 
 Trong VM (qua SSH tab):
 
@@ -67,8 +83,8 @@ cargo test -p ade-workspace agents && cargo test -p ade-ui top_bar
 - Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh
   (`●`), thiếu binary → tick đỏ (`○`); chưa có file → picker trống.
 - Nửa sau của lab (fan-out 1 prompt → 2 tasks → diff cả 2) còn BLOCKED:
-  cần driver khởi tạo `Supervisor` trong production (M6), hiện chỉ có
-  seam + tests (`Supervisor`/`FleetSweeper` chưa có callsite runtime).
+  driver `open_task_with` đã có + tests xanh nhưng chưa có callsite
+  production (chưa có nút/command nào gọi `rt.fleet()` trong app).
 
 ## Lab 5: fan-out + merge (Host, M2)
 

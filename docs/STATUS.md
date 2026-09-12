@@ -5,21 +5,22 @@
 M4 DONE (seam + wiring + tests; production driver pending → M6).
 M5 lõi DONE (CH-only, live-gated).
 M6 Terminal Host-only DONE (driver + pty + adapter + kit + ssh-shell).
-Next: M6 VM-thread wiring + live KVM, rồi M7.
+M6-VM W1–W3 DONE (driver provider ngoài, VmManager-thread, SSH tab).
+M5-live prep DONE (probe readable, user ubuntu, image max-time).
+Next: live KVM lần đầu, rồi M7.
 
 ## Last commit (đã verify)
 
-- M6 Host-only (không KVM vẫn xanh; phần VM-thread + live còn lại):
-  - `FleetInbox` registration seam (sống sót reconnect) + `open_host_task`
-    driver + Lab 4 fan-out Host (2 tasks mock → transcripts)
-  - `ShellChannel` + `HostShell` (`portable-pty` 0.9) + terminal tab
-    (scrollback viewer + input + search filter), Xvfb smoke sạch
-  - `TerminalAdapter` (heuristic Working/Done + `mark_done`, transcript
-    strip ANSI) + kit opencode thật (pin/verify, fake-guest tests)
-  - `MicroVm::shell` (ssh dưới pty + `-L` forwards) + `PreviewPorts`
-    allocator `4100-4199`
+- W1–W3 + M5-live prep (không KVM vẫn xanh):
+  - `open_task_with` (provider ngoài + nhánh terminal) — Lab 4 fan-out
+    headless xanh; callsite production (`rt.fleet()`) còn lại
+  - `VmThread` (Mock/CH theo probe, keys + preview ports có chủ) báo
+    `VmState` về badge qua channel; nút ⏻/Stop mỗi worktree; Xvfb sạch
+  - SSH tab chọn Host-vs-guest (`Ready` → `MicroVm::shell` + `-L`,
+    endpoint hiện trong badge); A1 probe readable, A2 user ubuntu,
+    A3 image `--max-time` + runbook live Lab 2
 - Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test --workspace` 126 passed (0 failed).
+  sạch + `cargo test --workspace` 132 passed (0 failed).
 
 ## Trước đó (M5, đã verify)
 
