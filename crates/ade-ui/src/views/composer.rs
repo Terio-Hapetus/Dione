@@ -11,6 +11,7 @@ impl AdeApp {
     pub(crate) fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.store.is_busy();
         let annotating = self.annotate_target.clone();
+        let anchoring = self.annotate_anchor.clone();
 
         let send = cx.listener(|this, _: &ClickEvent, window, cx| this.send_prompt(window, cx));
         let annotate =
@@ -22,8 +23,12 @@ impl AdeApp {
             .flex_none()
             .flex()
             .flex_col()
-            .children(annotating.clone().map(|(sid, file, line)| {
+            .children(annotating.clone().map(|(sid, file, line, end)| {
                 let short: String = sid.chars().take(8).collect();
+                let loc = match end {
+                    Some(e) => format!("{line}-{e}"),
+                    None => format!("{line}"),
+                };
                 div()
                     .flex()
                     .items_center()
@@ -32,9 +37,25 @@ impl AdeApp {
                     .border_t_1()
                     .border_color(warn_color())
                     .child(
-                        Label::new(format!("✎ note on {file}:{line} ({short}) — type + Enter"))
+                        Label::new(format!("✎ note on {file}:{loc} ({short}) — type + Enter"))
                             .text_size(px(11.))
                             .text_color(warn_color()),
+                    )
+            }))
+            .children(anchoring.clone().map(|(_, file, line)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .px_3()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(warn_color())
+                    .child(
+                        Label::new(format!(
+                            "✎ anchor {file}:{line} — click another line for a range"
+                        ))
+                        .text_size(px(11.))
+                        .text_color(warn_color()),
                     )
             }))
             .child(

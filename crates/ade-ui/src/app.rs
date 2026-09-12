@@ -34,7 +34,12 @@ pub struct AdeApp {
     pub(crate) right_tab: RightTab,
     pub(crate) model_ix: Option<usize>,
     pub(crate) diff_notes: Vec<DiffNote>,
-    pub(crate) annotate_target: Option<(String, String, u32)>,
+    /// Single/range note target: `(session, file, start, end)` with
+    /// `end = None` for a single line (M8c multi-line).
+    pub(crate) annotate_target: Option<(String, String, u32, Option<u32>)>,
+    /// Pending range anchor (M8c two-click select): first click waits
+    /// for a second click in the same file.
+    pub(crate) annotate_anchor: Option<(String, String, u32)>,
     /// Cherry-picked hunks (M8a): `(session_id, file, hunk_idx)` selected
     /// in the Diff tab, applied to the main checkout on demand.
     pub(crate) hunk_picks: BTreeSet<(String, String, usize)>,
@@ -183,6 +188,7 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
+            annotate_anchor: None,
             hunk_picks: BTreeSet::new(),
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
@@ -231,9 +237,10 @@ impl AdeApp {
         self.input.update(cx, |st, cx| st.set_value("", window, cx));
     }
 
-    /// Submit the composer text as a review note on the targeted diff line.
+    /// Submit the composer text as a review note on the targeted diff
+    /// line or range.
     pub(crate) fn submit_annotate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((sid, file, line)) = self.annotate_target.clone() else {
+        let Some((sid, file, line, end)) = self.annotate_target.clone() else {
             return;
         };
         let text = self.input.read(cx).value().to_string();
@@ -244,9 +251,11 @@ impl AdeApp {
             session_id: sid,
             file,
             line,
+            end_line: end,
             text: text.trim().to_string(),
         });
         self.annotate_target = None;
+        self.annotate_anchor = None;
         self.input.update(cx, |st, cx| st.set_value("", window, cx));
         cx.notify();
     }

@@ -306,25 +306,61 @@ fn sessions_group_by_scope() {
 
 #[test]
 fn format_review_notes_renders_items() {
-    use ade_core::state::{DiffNote, format_review_notes};
+    use ade_core::state::{DiffNote, format_review_notes, resolve_range};
 
     let notes = vec![
         DiffNote {
             session_id: "ses_1".into(),
             file: "a.rs".into(),
             line: 12,
+            end_line: None,
             text: "rename this".into(),
         },
         DiffNote {
             session_id: "ses_1".into(),
             file: "b.rs".into(),
             line: 3,
+            end_line: Some(7),
             text: "add test".into(),
+        },
+        DiffNote {
+            session_id: "ses_1".into(),
+            file: "c.rs".into(),
+            line: 5,
+            end_line: Some(5),
+            text: "single".into(),
         },
     ];
     let body = format_review_notes(&notes);
     assert!(body.contains("a.rs:12 — rename this"));
-    assert!(body.contains("b.rs:3 — add test"));
+    assert!(body.contains("b.rs:3-7 — add test"));
+    assert!(body.contains("c.rs:5 — single"));
+
+    // Two-click range machine: first click anchors, second resolves.
+    let click = ("s".to_string(), "f".to_string(), 12u32);
+    let (anchor, range) = resolve_range(None, click.clone());
+    assert_eq!(anchor, Some(click.clone()));
+    assert_eq!(range, None);
+    // Second click below → range; order normalized either way.
+    let (anchor2, range2) =
+        resolve_range(anchor.clone(), ("s".to_string(), "f".to_string(), 18u32));
+    assert_eq!(anchor2, None);
+    assert_eq!(range2, Some((12, 18)));
+    let (_, range3) = resolve_range(anchor, ("s".to_string(), "f".to_string(), 8u32));
+    assert_eq!(range3, Some((8, 12)));
+    // Clicking the anchor line itself → single line, anchor cleared.
+    let (_, range4) = resolve_range(
+        Some(("s".to_string(), "f".to_string(), 12u32)),
+        ("s".to_string(), "f".to_string(), 12u32),
+    );
+    assert_eq!(range4, Some((12, 12)));
+    // Different file/session moves the anchor instead of ranging.
+    let (anchor5, range5) = resolve_range(
+        Some(("s".to_string(), "f".to_string(), 12u32)),
+        ("s".to_string(), "g".to_string(), 20u32),
+    );
+    assert_eq!(range5, None);
+    assert_eq!(anchor5, Some(("s".to_string(), "g".to_string(), 20u32)));
 }
 
 #[test]

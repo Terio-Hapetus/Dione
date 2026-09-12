@@ -50,6 +50,8 @@ pub struct DiffNote {
     pub session_id: String,
     pub file: String,
     pub line: u32,
+    /// Multi-line range end (M8c): `None` (or `<= line`) = single line.
+    pub end_line: Option<u32>,
     pub text: String,
 }
 
@@ -57,9 +59,34 @@ pub struct DiffNote {
 pub fn format_review_notes(notes: &[DiffNote]) -> String {
     let mut out = String::from("Review feedback — please address each item:\n");
     for n in notes {
-        out.push_str(&format!("- {}:{} — {}\n", n.file, n.line, n.text));
+        let loc = match n.end_line {
+            Some(e) if e > n.line => format!("{}-{}", n.line, e),
+            _ => format!("{}", n.line),
+        };
+        out.push_str(&format!("- {}:{} — {}\n", n.file, loc, n.text));
     }
     out
+}
+
+/// Anchor state machine for two-click range select (M8c, pure).
+/// Returns `(start, end)` with `start <= end`, or `None` when the click
+/// only sets/moves the anchor. Clicking the anchor line itself clears it
+/// back to a single-line target.
+pub fn resolve_range(
+    anchor: Option<(String, String, u32)>,
+    click: (String, String, u32),
+) -> (Option<(String, String, u32)>, Option<(u32, u32)>) {
+    let (sid, file, line) = click;
+    match anchor {
+        Some((a_sid, a_file, a_line)) if a_sid == sid && a_file == file => {
+            if a_line == line {
+                (None, Some((line, line)))
+            } else {
+                (None, Some((a_line.min(line), a_line.max(line))))
+            }
+        }
+        _ => (Some((sid, file, line)), None),
+    }
 }
 
 /// One rendered diff line with its new/old-file number, if countable.

@@ -122,7 +122,16 @@ impl AdeApp {
                     Some(n) => {
                         let target = (sid.to_string(), name.clone(), n);
                         let set = cx.listener(move |app, _: &ClickEvent, _, cx| {
-                            app.annotate_target = Some(target.clone());
+                            // Two-click range select (M8c): first click
+                            // anchors, second click in the same file ranges.
+                            let (anchor, range) = ade_core::resolve_range(
+                                app.annotate_anchor.clone(),
+                                target.clone(),
+                            );
+                            app.annotate_anchor = anchor;
+                            app.annotate_target = range.map(|(a, b)| {
+                                (target.0.clone(), target.1.clone(), a, (b > a).then_some(b))
+                            });
                             cx.notify();
                         });
                         lines = lines.child(
@@ -196,9 +205,16 @@ impl AdeApp {
                     .gap_1()
                     .pl_2()
                     .child(
-                        Label::new(format!("✎ L{}: {}", note.line, truncate(&note.text, 120)))
-                            .text_size(px(11.))
-                            .text_color(warn_color()),
+                        Label::new(format!(
+                            "✎ L{}: {}",
+                            match note.end_line {
+                                Some(e) if e > note.line => format!("{}-{}", note.line, e),
+                                _ => format!("{}", note.line),
+                            },
+                            truncate(&note.text, 120)
+                        ))
+                        .text_size(px(11.))
+                        .text_color(warn_color()),
                     )
                     .child(
                         Button::new(SharedString::from(format!(
