@@ -8,10 +8,21 @@ M6 Terminal Host-only DONE (driver + pty + adapter + kit + ssh-shell).
 M6-VM W1–W3 DONE (driver provider ngoài, VmManager-thread, SSH tab).
 M5-live prep DONE (probe readable, user ubuntu, image max-time).
 M7a DONE (per-task retry budget + error→sweep→block chain, Host-only).
-Next: M7b (Blocked persist + UI + retry tay), rồi M7c/d; live KVM song song.
+M7b-core DONE (Blocked persist + untrack + RetryTask, chưa UI).
+Next: M7b-UI (badge + nút ↻ row/strip + Xvfb smoke), rồi M7c/d.
 
 ## Last commit (đã verify)
 
+- M7b-core (`3427842`, Host-only, chưa UI):
+  - `Store.blocked: BTreeMap<TaskId, slug>` + `mark/is/clear_blocked_by_slug`
+    (in-memory; restart rebuild từ sweep mới)
+  - Sweep ghi slug (resolve từ inbox tasks) + untrack Blocked → hết spam lặp
+  - `Command::RetryTask { slug }` → `inbox.retry_task` (reset + re-track
+    đúng limit) + xóa mirror; slug lạ → lỗi rõ
+  - Tests: mirror round-trip, slug mapping, quiet-sau-block, retry→silent,
+    `supervisor_retry_reset`
+- Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
+  sạch + `cargo test -p ade-core -p ade-agent -p ade-workspace` xanh.
 - M7a retry budget (`f61982f` + `2421649`, Host-only, không KVM vẫn xanh):
   - `Task { failure_limit = 2, failure_count, status: Active/Retrying/Blocked }`
     + `with_failure_limit`/`note_failure`/`note_success`/`retry_reset`
