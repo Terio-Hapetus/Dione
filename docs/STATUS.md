@@ -17,11 +17,20 @@ M8a DONE (hunk cherry-pick core + Diff tab picks, trên branch M7).
 M8b0 DONE (render git-shape diffs — cherry-pick sống trên diff thật).
 M8b DONE (review queue: NeedsYou trước + chờ-lâu-nhất, fair queue).
 M8c1 DONE (annotate multi-line: two-click range + end_line).
-Next: M8c2 (thread replies) → M8d (branch paths) → M8e (viewer);
+M8c2 DONE (thread replies: Reply + render + format).
+Next: M8d (branch paths) → M8e (viewer);
 push/PR chờ fix gh auth.
 
 ## Last commit (đã verify)
 
+- M8c2 (`13e1d68`):
+  - `DiffNote.replies` + format `↳ reply` + pure `append_reply`
+    (by value, target mất → false sạch)
+  - UI: nút `Reply` mỗi note → composer hint `↳ reply on …`;
+    submit append vào note (target mất → drop); render replies thụt đầu
+  - Tests: format + append/stale trong state_tests + Xvfb smoke
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+  xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8c1 (`c0aa3b7`):
   - `DiffNote.end_line` + format `L12-L18` + pure `resolve_range`
     (anchor → range, cùng dòng → single, khác file → dời anchor)
