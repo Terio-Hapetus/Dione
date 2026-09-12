@@ -353,3 +353,92 @@ fn parse_patch_lines_multi_hunk() {
     assert_eq!(at("+new3"), Some(11));
     assert!(texts.contains(&"--- a/f.rs"));
 }
+
+fn session_with_updated(id: &str, updated: u64) -> serde_json::Value {
+    json!({
+        "id": id,
+        "directory": "/repo",
+        "projectID": "proj_1",
+        "slug": "test",
+        "time": {"created": 1, "updated": updated},
+        "title": "test session",
+        "version": "1"
+    })
+}
+
+fn create_review_session(s: &mut Store, id: &str, updated: u64, scope: &str) {
+    apply(
+        s,
+        json!({
+            "type": "session.created",
+            "id": format!("evt-{id}"),
+            "properties": {"info": session_with_updated(id, updated), "sessionID": id}
+        }),
+    );
+    if !scope.is_empty() {
+        s.session_scope.insert(id.to_string(), scope.to_string());
+    }
+    s.diffs.insert(id.to_string(), json!([]));
+}
+
+fn ask_permission(s: &mut Store, pid: &str, sid: &str) {
+    apply(
+        s,
+        json!({
+            "type": "permission.asked",
+            "id": format!("evt-{pid}"),
+            "properties": {
+                "id": pid,
+                "sessionID": sid,
+                "permission": "bash",
+                "patterns": [],
+                "metadata": {},
+                "always": []
+            }
+        }),
+    );
+}
+
+#[test]
+fn review_queue_needs_you_first_then_oldest() {
+    let mut s = Store::default();
+    create_review_session(&mut s, "ses_new", 300, "wt-a");
+    create_review_session(&mut s, "ses_old", 100, "wt-b");
+    create_review_session(&mut s, "ses_mid", 200, "");
+    // Baseline: oldest activity first.
+    assert_eq!(
+        s.sort_review_sids(vec!["ses_new".into(), "ses_old".into(), "ses_mid".into()]),
+        vec![
+            "ses_old".to_string(),
+            "ses_mid".to_string(),
+            "ses_new".to_string()
+        ]
+    );
+    // A pending permission jumps its session to the front.
+    ask_permission(&mut s, "per_1", "ses_new");
+    let sorted = s.sort_review_sids(vec!["ses_new".into(), "ses_old".into(), "ses_mid".into()]);
+    assert_eq!(
+        sorted,
+        vec![
+            "ses_new".to_string(),
+            "ses_old".to_string(),
+            "ses_mid".to_string()
+        ]
+    );
+    // Scopes queue by their longest waiter — main competes on merit.
+    assert_eq!(
+        s.sort_review_scopes(vec!["".into(), "wt-a".into(), "wt-b".into()]),
+        vec!["wt-a".to_string(), "wt-b".to_string(), "".to_string()]
+    );
+}
+
+#[test]
+fn review_queue_sinks_unknown_sessions() {
+    let mut s = Store::default();
+    create_review_session(&mut s, "ses_known", 50, "");
+    let sorted = s.sort_review_sids(vec!["ses_ghost".into(), "ses_known".into()]);
+    assert_eq!(
+        sorted,
+        vec!["ses_known".to_string(), "ses_ghost".to_string()]
+    );
+}

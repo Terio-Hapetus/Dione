@@ -224,6 +224,39 @@ impl Store {
         ids.into_iter().map(|(id, _)| id.clone()).collect()
     }
 
+    // -- M8b: review queue --------------------------------------------------
+    /// Sort key for the review queue: sessions blocked on a human come
+    /// first, then longest waiting (oldest `time.updated`) first.
+    /// Missing sessions (retired/orphan diffs) sink to the bottom.
+    pub fn review_rank(&self, sid: &str) -> (bool, u64) {
+        let updated = self
+            .sessions
+            .get(sid)
+            .map(|s| s.time.updated)
+            .unwrap_or(u64::MAX);
+        (!self.has_pending(sid), updated)
+    }
+
+    /// Sort session ids into review order (fair across scopes).
+    pub fn sort_review_sids(&self, mut sids: Vec<String>) -> Vec<String> {
+        sids.sort_by_key(|sid| self.review_rank(sid));
+        sids
+    }
+
+    /// Sort scopes by their longest-waiting session with a diff. The main
+    /// scope (`""`) competes on equal terms; scopes without diffs sink.
+    pub fn sort_review_scopes(&self, mut scopes: Vec<String>) -> Vec<String> {
+        scopes.sort_by_key(|scope| {
+            self.diffs
+                .keys()
+                .filter(|sid| self.scope_of(sid) == scope)
+                .map(|sid| self.review_rank(sid))
+                .min()
+                .unwrap_or((true, u64::MAX))
+        });
+        scopes
+    }
+
     /// Dashboard status for a worktree, derived from its main session.
     pub fn worktree_status(&self, slug: &str) -> WorktreeStatus {
         let Some(record) = self.worktrees.get(slug) else {

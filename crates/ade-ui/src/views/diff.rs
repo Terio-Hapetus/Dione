@@ -219,16 +219,17 @@ impl AdeApp {
         if self.store.diffs.is_empty() {
             return v_center("No diffs yet — press ↻ all to fetch.");
         }
-        // Group sessions with diffs by scope: worktrees first, then root.
-        let mut scopes: Vec<String> = self
-            .store
-            .diffs
-            .keys()
-            .map(|sid| self.store.scope_of(sid).to_string())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        scopes.sort_by_key(|s| (!s.is_empty(), s.clone()));
+        // Group sessions with diffs by scope, longest-waiting first (M8b
+        // fair queue: the main scope competes on equal terms).
+        let scopes: Vec<String> = self.store.sort_review_scopes(
+            self.store
+                .diffs
+                .keys()
+                .map(|sid| self.store.scope_of(sid).to_string())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+        );
 
         let mut col = div().flex().flex_col().gap_2();
         for scope in scopes {
@@ -258,14 +259,16 @@ impl AdeApp {
                 );
             }
             let mut section = div().flex().flex_col().gap_1().child(head_row);
-            let mut sids: Vec<_> = self
-                .store
-                .diffs
-                .keys()
-                .filter(|sid| self.store.scope_of(sid) == scope)
-                .cloned()
-                .collect();
-            sids.sort();
+            // Sessions in review order: needs-you first, then longest
+            // waiting (M8b). Replaces the old lexicographic sid sort.
+            let sids = self.store.sort_review_sids(
+                self.store
+                    .diffs
+                    .keys()
+                    .filter(|sid| self.store.scope_of(sid) == scope)
+                    .cloned()
+                    .collect(),
+            );
             for sid in sids {
                 let notes: Vec<DiffNote> = self
                     .diff_notes
