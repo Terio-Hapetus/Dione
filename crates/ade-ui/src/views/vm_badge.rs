@@ -50,16 +50,23 @@ impl AdeApp {
     }
 
     /// Fleet-row suffix for a workspace VM state, if tracked.
+    /// Ready/Running rows also show the SSH endpoint for manual access.
     pub(crate) fn vm_badge(&self, slug: &str) -> Option<AnyElement> {
         let state = self.vm_states.get(slug)?;
         let dot = vm_dot(state)?;
+        let mut label = format!("vm:{}", vm_label(state));
+        if matches!(state, VmState::Ready | VmState::Running)
+            && let Some(ssh) = self.vm_ssh.get(slug)
+        {
+            label.push_str(&format!(" {}@{}:{}", ssh.user, ssh.host, ssh.port));
+        }
         Some(
             div()
                 .flex()
                 .items_center()
                 .gap_1()
                 .child(
-                    Label::new(format!("vm:{}", vm_label(state)))
+                    Label::new(label)
                         .text_size(px(10.))
                         .text_color(muted_color()),
                 )

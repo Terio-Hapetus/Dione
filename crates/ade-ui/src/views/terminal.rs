@@ -25,6 +25,8 @@ pub(crate) struct TermState {
     cwd: PathBuf,
     pub(crate) lines: VecDeque<String>,
     tail: String,
+    /// Guest shells are not respawned locally on death (re-toggle).
+    guest: bool,
 }
 
 impl TermState {
@@ -34,6 +36,17 @@ impl TermState {
             cwd,
             lines: VecDeque::new(),
             tail: String::new(),
+            guest: false,
+        }
+    }
+
+    pub(crate) fn new_guest(shell: Box<dyn ShellChannel>, cwd: PathBuf) -> Self {
+        Self {
+            shell,
+            cwd,
+            lines: VecDeque::new(),
+            tail: String::new(),
+            guest: true,
         }
     }
 
@@ -55,7 +68,7 @@ impl TermState {
     }
 
     fn ensure_alive(&mut self) {
-        if !self.shell.is_alive() {
+        if !self.guest && !self.shell.is_alive() {
             let cwd = self.cwd.clone();
             if let Ok(shell) = ade_workspace::HostProvider::new().shell(&cwd) {
                 self.shell = shell;
@@ -65,27 +78,77 @@ impl TermState {
 }
 
 impl AdeApp {
-    /// Show/hide the terminal tab, spawning the shell on first open.
+    /// Active worktree slug + path, if any.
+    fn active_checkout(&self) -> Option<(String, std::path::PathBuf)> {
+        self.store.active_worktree.as_ref().and_then(|slug| {
+            self.store
+                .worktrees
+                .get(slug)
+                .map(|r| (slug.clone(), r.path.clone()))
+        })
+    }
+
+    /// Is this worktree's guest Ready/Running?
+    fn guest_ready(&self, slug: &str) -> bool {
+        self.vm_states
+            .get(slug)
+            .is_some_and(|s| matches!(s, ade_vm::VmState::Ready | ade_vm::VmState::Running))
+    }
+
+    /// Show/hide the terminal tab. Guest Ready → SSH shell via the VM
+    /// thread (async reply); otherwise a local Host shell, spawned now.
     pub(crate) fn toggle_terminal(&mut self) {
         if self.show_terminal {
             self.show_terminal = false;
             return;
         }
-        if self.term.is_none() {
-            let cwd = self
-                .store
-                .active_worktree
-                .as_ref()
-                .and_then(|slug| self.store.worktrees.get(slug))
-                .map(|r| r.path.clone());
-            if let Some(cwd) = cwd {
-                match ade_workspace::HostProvider::new().shell(&cwd) {
-                    Ok(shell) => self.term = Some(TermState::new(shell, cwd)),
-                    Err(e) => eprintln!("terminal spawn failed: {e:#}"),
-                }
+        if self.term.is_some() {
+            self.show_terminal = true;
+            return;
+        }
+        let Some((slug, cwd)) = self.active_checkout() else {
+            return;
+        };
+        if self.guest_ready(&slug) {
+            self.pending_shell = Some(self.vm.open_shell(slug, cwd));
+            self.term_pending = true;
+            self.show_terminal = true;
+            return;
+        }
+        match ade_workspace::HostProvider::new().shell(&cwd) {
+            Ok(shell) => {
+                self.term = Some(TermState::new(shell, cwd));
+                self.show_terminal = true;
+            }
+            Err(e) => eprintln!("terminal spawn failed: {e:#}"),
+        }
+    }
+
+    /// Collect an arrived guest shell (polled in the snapshot loop).
+    /// Returns true when the view needs a repaint.
+    pub(crate) fn poll_pending_shell(&mut self) -> bool {
+        let Some(rx) = self.pending_shell.as_ref() else {
+            return false;
+        };
+        let Ok(res) = rx.try_recv() else {
+            return false;
+        };
+        self.pending_shell = None;
+        self.term_pending = false;
+        match res {
+            Ok(shell) => {
+                let cwd = self
+                    .active_checkout()
+                    .map(|(_, p)| p)
+                    .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+                self.term = Some(TermState::new_guest(shell, cwd));
+            }
+            Err(e) => {
+                eprintln!("guest shell failed: {e}");
+                self.show_terminal = false;
             }
         }
-        self.show_terminal = self.term.is_some();
+        true
     }
 
     /// Pump shell output into scrollback. Returns true when the view
@@ -119,14 +182,16 @@ impl AdeApp {
 
     pub(crate) fn render_terminal(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(term) = self.term.as_ref() else {
+            let msg = if self.term_pending {
+                "connecting to guest…"
+            } else {
+                "open a worktree (+ wt) to start a terminal"
+            };
             return div()
                 .flex_1()
                 .items_center()
                 .justify_center()
-                .child(
-                    Label::new("open a worktree (+ wt) to start a terminal")
-                        .text_color(muted_color()),
-                )
+                .child(Label::new(msg).text_color(muted_color()))
                 .into_any_element();
         };
         let send = cx.listener(|this, _: &ClickEvent, window, cx| {

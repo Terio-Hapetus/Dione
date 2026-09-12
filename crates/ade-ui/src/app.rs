@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ade_core::{Command, DiffNote, RuntimeHandle, Store};
-use ade_vm::{VmState, probe_kvm};
+use ade_vm::{SshInfo, VmState, probe_kvm};
 use ade_workspace::{default_agents_path, load_agents_toml, probe_all};
 use gpui::*;
 use gpui_component::{
@@ -57,6 +57,12 @@ pub struct AdeApp {
     /// VM manager background thread (W2). UI sends Ensure/Stop, drains
     /// reports in the snapshot loop — never blocks.
     pub(crate) vm: VmThread,
+    /// SSH endpoints per worktree slug (for the badge + manual access).
+    pub(crate) vm_ssh: BTreeMap<String, SshInfo>,
+    /// Pending guest shell reply (W3). Polled without blocking.
+    pub(crate) pending_shell: Option<std::sync::mpsc::Receiver<crate::vm_thread::ShellReply>>,
+    /// True while a guest shell is in flight (placeholder text).
+    pub(crate) term_pending: bool,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -125,10 +131,22 @@ impl AdeApp {
                     // VM reports: feed the Fleet badge without blocking.
                     let mut vm_changed = false;
                     for rep in app.vm.drain() {
+                        match rep.ssh {
+                            Some(ssh) => {
+                                app.vm_ssh.insert(rep.slug.clone(), ssh);
+                            }
+                            None => {
+                                app.vm_ssh.remove(&rep.slug);
+                            }
+                        }
                         app.set_vm_state(rep.slug, rep.state);
                         vm_changed = true;
                     }
                     if vm_changed {
+                        cx.notify();
+                    }
+                    // Guest shell arrival (W3).
+                    if app.poll_pending_shell() {
                         cx.notify();
                     }
                     // Slow refresh: pick up agents.toml edits, newly
@@ -164,11 +182,14 @@ impl AdeApp {
             annotate_target: None,
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
+            vm_ssh: BTreeMap::new(),
             agent_names,
             agent_ok,
             polls: 0,
             term: None,
             show_terminal: false,
+            pending_shell: None,
+            term_pending: false,
         }
     }
 
