@@ -1,4 +1,4 @@
-use ade_core::{Command, DiffNote, parse_patch_lines};
+use ade_core::{Command, DiffNote, parse_patch_lines, worktree::split_hunks};
 use gpui::*;
 use gpui_component::{Sizable as _, button::Button, label::Label};
 
@@ -33,6 +33,9 @@ impl AdeApp {
         )));
         if let Some(patch) = d.patch.clone() {
             let mut lines = div().flex().flex_col();
+            // Track which @@ hunk each rendered row belongs to so @@ rows
+            // get a cherry-pick toggle (M8a). Preamble rows get None.
+            let mut hunk_idx: Option<usize> = None;
             for (li, pl) in parse_patch_lines(&patch).iter().take(400).enumerate() {
                 let color = if pl.text.starts_with('+') && !pl.text.starts_with("+++") {
                     ok_color()
@@ -43,7 +46,39 @@ impl AdeApp {
                 } else {
                     muted_color()
                 };
+                if pl.text.starts_with("@@") {
+                    hunk_idx = Some(hunk_idx.map_or(0, |i| i + 1));
+                }
                 let row = div().child(Label::new(pl.text.clone()).text_color(color));
+                // @@ rows carry a pick toggle; +/- rows keep annotate clicks.
+                if let Some(hi) = hunk_idx.filter(|_| pl.text.starts_with("@@")) {
+                    let key = (sid.to_string(), name.clone(), hi);
+                    let picked = self.hunk_picks.contains(&key);
+                    let key_toggle = key.clone();
+                    let toggle = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                        if !app.hunk_picks.remove(&key_toggle) {
+                            app.hunk_picks.insert(key_toggle.clone());
+                        }
+                        cx.notify();
+                    });
+                    lines = lines.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "hunk-{sid}-{file_idx}-{hi}"
+                                )))
+                                .label(if picked { "☑" } else { "☐" })
+                                .xsmall()
+                                .compact()
+                                .on_click(toggle),
+                            )
+                            .child(Label::new(pl.text.clone()).text_color(color)),
+                    );
+                    continue;
+                }
                 match pl.line {
                     Some(n) => {
                         let target = (sid.to_string(), name.clone(), n);
@@ -63,6 +98,41 @@ impl AdeApp {
                 }
             }
             block = block.child(lines);
+            // Cherry-pick (M8a): apply picked hunks of this file to the
+            // main checkout. Picks clear on send.
+            let picked: Vec<usize> = self
+                .hunk_picks
+                .iter()
+                .filter(|(s, f, _)| s == sid && *f == name)
+                .map(|(_, _, i)| *i)
+                .collect();
+            if !picked.is_empty() {
+                let n = picked.len();
+                let apply_sid = sid.to_string();
+                let apply_file = name.clone();
+                let apply_patch = patch.clone();
+                let apply = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                    let all = split_hunks(&apply_patch);
+                    let hunks = picked
+                        .iter()
+                        .filter_map(|i| all.get(*i).cloned())
+                        .collect::<Vec<_>>();
+                    app.hunk_picks
+                        .retain(|(s, f, _)| !(s == &apply_sid && *f == apply_file));
+                    app.rt.send(Command::ApplyHunks {
+                        file: apply_file.clone(),
+                        hunks,
+                    });
+                    cx.notify();
+                });
+                block = block.child(
+                    Button::new(SharedString::from(format!("hunks-apply-{sid}-{file_idx}")))
+                        .label(format!("Apply {n} hunk(s) → main"))
+                        .xsmall()
+                        .compact()
+                        .on_click(apply),
+                );
+            }
         }
         // Notes attached to this file.
         // Refactor: delete by value (not captured index) so list mutations

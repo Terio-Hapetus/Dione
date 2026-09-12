@@ -236,3 +236,87 @@ async fn git_diff_sees_uncommitted_changes() {
     worktree::remove(&repo, "feat-diff").await.unwrap();
     cleanup(&repo);
 }
+
+#[test]
+fn split_hunks_groups_headers_and_bodies() {
+    let patch = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9,1 +9,1 @@\n-x\n+y\n";
+    let h = worktree::split_hunks(patch);
+    assert_eq!(h.len(), 2);
+    assert_eq!(h[0].header, "@@ -1,2 +1,2 @@");
+    assert_eq!(h[0].lines, vec![" a", "-b", "+c"]);
+    assert_eq!(h[1].header, "@@ -9,1 +9,1 @@");
+    assert_eq!(h[1].lines, vec!["-x", "+y"]);
+    assert!(worktree::split_hunks("no hunks here\n").is_empty());
+}
+
+/// Numbered file with 3 far-apart changes → 3 hunks, pristine again.
+fn three_hunk_repo() -> (PathBuf, Vec<worktree::Hunk>) {
+    let repo = init_repo();
+    let body: String = (1..=30).map(|i| format!("L{i}\n")).collect();
+    std::fs::write(repo.join("f.txt"), &body).unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "numbered"]);
+    let changed = body
+        .replace("L5\n", "L5*\n")
+        .replace("L15\n", "L15*\n")
+        .replace("L25\n", "L25*\n");
+    std::fs::write(repo.join("f.txt"), &changed).unwrap();
+    let patch = git_out(&repo, &["diff", "--", "f.txt"]);
+    let hunks = worktree::split_hunks(&patch);
+    assert_eq!(hunks.len(), 3);
+    sh(&repo, &["checkout", "--", "f.txt"]);
+    (repo, hunks)
+}
+
+#[tokio::test]
+async fn cherry_pick_applies_hunk_subset() {
+    let (repo, hunks) = three_hunk_repo();
+    worktree::apply_hunks(&repo, "f.txt", &[hunks[0].clone(), hunks[2].clone()])
+        .await
+        .unwrap();
+    let got = std::fs::read_to_string(repo.join("f.txt")).unwrap();
+    assert!(got.contains("L5*\n"), "hunk 0 applied");
+    assert!(got.contains("L25*\n"), "hunk 2 applied");
+    assert!(
+        got.contains("L15\n") && !got.contains("L15*\n"),
+        "hunk 1 skipped"
+    );
+    cleanup(&repo);
+}
+
+#[tokio::test]
+async fn cherry_pick_conflict_fails_without_touching_file() {
+    let (repo, hunks) = three_hunk_repo();
+    worktree::apply_hunks(&repo, "f.txt", &hunks).await.unwrap();
+    // Same hunk again: context no longer matches → clean error.
+    let err = worktree::apply_hunks(&repo, "f.txt", &hunks[0..1])
+        .await
+        .unwrap_err();
+    assert!(matches!(err, worktree::WorktreeError::Git(_)));
+    let got = std::fs::read_to_string(repo.join("f.txt")).unwrap();
+    assert!(got.contains("L5*\n"), "first apply kept");
+    cleanup(&repo);
+}
+
+#[tokio::test]
+async fn cherry_pick_rejects_empty_selection_and_bad_input() {
+    let repo = init_repo();
+    // Empty selection is a silent no-op (no git involved).
+    worktree::apply_hunks(&repo, "f.txt", &[]).await.unwrap();
+    // Bad file names and headers fail before touching git.
+    let h = worktree::Hunk {
+        header: "@@ -1,1 +1,1 @@".into(),
+        lines: vec!["-hi".into(), "+ho".into()],
+    };
+    assert!(
+        worktree::apply_hunks(&repo, "", &[h.clone()])
+            .await
+            .is_err()
+    );
+    let bad = worktree::Hunk {
+        header: "not a header".into(),
+        lines: vec![],
+    };
+    assert!(worktree::apply_hunks(&repo, "f.txt", &[bad]).await.is_err());
+    cleanup(&repo);
+}

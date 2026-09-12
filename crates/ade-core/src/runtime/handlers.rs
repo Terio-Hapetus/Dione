@@ -110,6 +110,15 @@ pub(crate) async fn handle_command(
                 fetch_diff(st, &client, &sid).await;
             }
         }
+        Command::ApplyHunks { file, hunks } => {
+            let n = hunks.len();
+            match worktree::apply_hunks(&st.repo, &file, &hunks).await {
+                Ok(()) => st.store.push_error(format!(
+                    "fleet: applied {n} hunk(s) of {file} to the main checkout"
+                )),
+                Err(e) => st.store.push_error(format!("cherry-pick failed: {e:#}")),
+            }
+        }
         Command::SetModel {
             provider_id,
             model_id,

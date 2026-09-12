@@ -3,7 +3,7 @@
 //! `composer`, `right_panel`, `diff`, `permission`); shared colors and
 //! text helpers live in `views::theme`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,6 +35,9 @@ pub struct AdeApp {
     pub(crate) model_ix: Option<usize>,
     pub(crate) diff_notes: Vec<DiffNote>,
     pub(crate) annotate_target: Option<(String, String, u32)>,
+    /// Cherry-picked hunks (M8a): `(session_id, file, hunk_idx)` selected
+    /// in the Diff tab, applied to the main checkout on demand.
+    pub(crate) hunk_picks: BTreeSet<(String, String, usize)>,
     /// KVM capability at startup. False → Host-mode banner (Lab 6).
     pub(crate) vm_available: bool,
     /// Workspace slug → VM lifecycle state. Filled by the VmManager
@@ -180,6 +183,7 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
+            hunk_picks: BTreeSet::new(),
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
             vm_ssh: BTreeMap::new(),

@@ -34,6 +34,12 @@ pub enum Command {
     Abort,
     FetchDiff(String),
     FetchAllDiffs,
+    /// Cherry-pick hunks (M8a): apply selected unified-diff hunks of
+    /// `file` into the main repo checkout.
+    ApplyHunks {
+        file: String,
+        hunks: Vec<crate::worktree::Hunk>,
+    },
     SendNotes {
         session_id: String,
         notes: Vec<crate::state::DiffNote>,

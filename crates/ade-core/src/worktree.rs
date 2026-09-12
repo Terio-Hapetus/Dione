@@ -241,6 +241,96 @@ pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeErr
     remove(repo, slug).await?;
     Ok(out.trim().to_string())
 }
+/// One `@@` hunk of a unified diff (M8a cherry-pick). `header` is the
+/// `@@ -a,b +c,d @@` line; `lines` are the body (` `/`+`/`-`) lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hunk {
+    pub header: String,
+    pub lines: Vec<String>,
+}
+
+/// Split a unified patch into its `@@` hunks. Preamble (`diff --git`,
+/// `---`/`+++`) is dropped — [`apply_hunks`] re-synthesizes it.
+pub fn split_hunks(patch: &str) -> Vec<Hunk> {
+    let mut out = Vec::new();
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            out.push(Hunk {
+                header: line.to_string(),
+                lines: Vec::new(),
+            });
+        } else if let Some(h) = out.last_mut() {
+            h.lines.push(line.to_string());
+        }
+    }
+    out
+}
+
+/// Apply a subset of one file's hunks into the checkout at `path`
+/// (M8a cherry-pick). Empty selection is a no-op. New/deleted-file
+/// hunks are rejected — only modification hunks for now.
+/// Fails cleanly (target untouched) when context no longer matches.
+pub async fn apply_hunks(path: &Path, file: &str, hunks: &[Hunk]) -> Result<(), WorktreeError> {
+    if hunks.is_empty() {
+        return Ok(());
+    }
+    if file.is_empty() || file.contains('\n') {
+        return Err(WorktreeError::Git(format!("bad file name: {file:?}")));
+    }
+    let mut patch = format!("diff --git a/{file} b/{file}\n--- a/{file}\n+++ b/{file}\n");
+    for h in hunks {
+        if !h.header.starts_with("@@") {
+            return Err(WorktreeError::Git(format!(
+                "bad hunk header: {:?}",
+                h.header
+            )));
+        }
+        patch.push_str(&h.header);
+        patch.push('\n');
+        for l in &h.lines {
+            patch.push_str(l);
+            patch.push('\n');
+        }
+    }
+    run_git_stdin(path, &["apply", "-"], &patch)
+        .await
+        .map(|_| ())
+}
+
+async fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> Result<String, WorktreeError> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+
+    let mut child = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(input.as_bytes())
+            .await
+            .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    }
+    let out = child
+        .wait_with_output()
+        .await
+        .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(WorktreeError::Git(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )))
+    }
+}
+
 /// `git worktree prune` plus deletion of merged `ade/*` orphan branches
 /// whose worktree directory is gone.
 pub async fn prune(repo: &Path) -> Result<(), WorktreeError> {
