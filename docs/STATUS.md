@@ -13,10 +13,23 @@ M7b-UI DONE (badge + nút ↻ row/strip + Xvfb smoke).
 M7c DONE (handoff minimal: parent + summary, data-only UI).
 M7d DONE (base origin/HEAD offline-safe + cấm trùng slug).
 M7 CLOSED (retry budget + handoff + hygiene, Host-only).
-Next: M8 (Review++) hoặc live KVM lần đầu (Lab 2/3).
+M8a DONE (hunk cherry-pick core + Diff tab picks, trên branch M7).
+Next: M8b (review queue sort) → M8c/d/e; push/PR chờ fix gh auth.
 
 ## Last commit (đã verify)
 
+- M8a (`41ca7d1`, trên branch `feat/m7-fleet-reliability`):
+  - Core: `Hunk` + `split_hunks` (pure) + `apply_hunks` (dựng patch tối
+    thiểu → `git apply` qua stdin; rỗng = no-op; conflict fail sạch)
+  - `Command::ApplyHunks { file, hunks }` → apply vào main checkout +
+    báo kết quả qua error strip
+  - Diff tab: toggle `☐/☑` mỗi dòng `@@` + nút `Apply N hunk(s) → main`
+    (picks trong `AdeApp.hunk_picks`, clear sau khi gửi)
+  - Tests: split/subset/conflict/bad-input (worktree 13/13)
+- Verified: check + clippy 0 + fmt + tests 4 crates xanh + Xvfb smoke
+  (cửa sổ hiện, log sạch). Lưu ý: 2 lần fail lẻ `microvm` khi 4 crate
+  chạy song song, pass 3/3 riêng lẻ + full rerun — flake timing fake-ssh
+  có sẵn, không đụng code slice này.
 - M7d (`44eec2d`, Host-only, offline-safe):
   - `worktree::resolve_base`: `origin/HEAD` nếu có local, fallback `HEAD`
     (không fetch); `create()` pin `worktree add -b <branch> <base>`
