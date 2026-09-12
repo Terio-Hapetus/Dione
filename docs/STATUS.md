@@ -19,11 +19,23 @@ M8b DONE (review queue: NeedsYou trước + chờ-lâu-nhất, fair queue).
 M8c1 DONE (annotate multi-line: two-click range + end_line).
 M8c2 DONE (thread replies: Reply + render + format).
 M8d DONE (branch paths: Branch here + Hand off, giữ worktree).
-Next: M8e (viewer text-first) → đóng M8;
-push/PR chờ fix gh auth.
+M8e DONE (viewer text-first, TS-ready, tab File riêng).
+M8 CLOSED (review++ trên branch feat/m7-fleet-reliability).
+Next: push/PR (chờ fix gh auth) → M9 (Cost/BYOK) hoặc live KVM.
 
 ## Last commit (đã verify)
 
+- M8e (`630b1c9`):
+  - `views/file.rs` mới: `OpenFile` + `lang_of` (tag sẵn cho TS) +
+    `checkout_for` (worktree path; main suy root từ worktree có sẵn) +
+    `load_file` (chặn binary, cap 256KB) + cap 2000 dòng render
+  - Tab File riêng (giữ Inspector placeholder); click tên file single-block
+    mở viewer (multi-file `"a.rs, b.rs"` giữ tĩnh); lỗi mở hiện inline
+    (snapshot UI không push store errors được); nút × đóng
+  - Không gọi `code_editor()` (tránh highlight-sai-JSON); 0 dep mới
+  - Tests: lang/checkout/load-cap/open-guard (ui 20) + Xvfb smoke sạch
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+  xanh.
 - M8d (`8e0de12`):
   - `create_branch_here` (check-ref-format + rev-parse nguồn + collision
     fail sạch) + `hand_off_to_local` (merge `--no-ff` giữ worktree/branch;
