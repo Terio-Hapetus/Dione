@@ -43,7 +43,7 @@ Missing → PullingImage → Booting → WaitingSsh → Mounting → Ready → R
 ## SSH & ports
 
 - SSH server: OpenSSH trong guest, `authorized_keys` bơm lúc boot.
-- Host nối qua vsock/port-forward: `ssh -i <ephemeral> -p <port> vm@127.0.0.1`.
+- Host nối qua vsock/port-forward: `ssh -i <ephemeral> -p <port> ubuntu@127.0.0.1`.
 - Preview: `VM:3000 → host:41xx` (mỗi workspace 1 dải, tránh đụng).
 - Secrets: không copy file key vào VM. Host bơm vào env của `exec`.
 
