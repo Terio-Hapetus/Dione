@@ -26,6 +26,11 @@ pub enum Command {
     FanOut {
         text: String,
     },
+    /// Manual retry (M7b): reset the blocked task owning `slug` and
+    /// re-track it with its own budget.
+    RetryTask {
+        slug: String,
+    },
     Abort,
     FetchDiff(String),
     FetchAllDiffs,

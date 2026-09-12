@@ -56,6 +56,17 @@ pub(crate) async fn handle_command(
             }
         }
         Command::FanOut { text } => fan_out(st, text).await,
+        Command::RetryTask { slug } => {
+            if inbox.retry_task(&slug) {
+                let n = st.store.clear_blocked_by_slug(&slug).len();
+                st.store.push_error(format!(
+                    "fleet: retried {slug} ({n} task(s) back under budget)"
+                ));
+            } else {
+                st.store
+                    .push_error(format!("fleet: nothing blocked for {slug}"));
+            }
+        }
         Command::SendNotes { session_id, notes } => {
             if notes.is_empty() {
                 return true;

@@ -72,6 +72,12 @@ impl Supervisor {
         std::mem::take(&mut self.error_hits)
     }
 
+    /// Manual retry (M7b): budget restored, error buffer cleared.
+    pub fn retry_reset(&mut self) {
+        self.task.retry_reset();
+        self.error_hits.clear();
+    }
+
     pub fn workspace(&mut self) -> &mut dyn WorkspaceProvider {
         &mut *self.ws
     }
@@ -98,6 +104,10 @@ impl ade_core::runtime::fleet::SupervisedTask for Supervisor {
 
     fn drain_errors(&mut self) -> Vec<TaskId> {
         Supervisor::drain_errors(self)
+    }
+
+    fn retry_reset(&mut self) {
+        Supervisor::retry_reset(self)
     }
 
     fn bind_session(&mut self, session_id: &str) {
@@ -311,5 +321,38 @@ mod tests {
         inbox.poll_fleet(&mut store, 30);
         assert_eq!(store.errors.len(), 1);
         assert!(store.errors[0].contains("blocked"));
+        assert!(store.is_blocked_slug("wt-err"));
+        // Next sweep stays silent: blocked tasks are untracked.
+        inbox.poll_fleet(&mut store, 60);
+        assert_eq!(store.errors.len(), 1);
+        // Manual retry re-tracks fresh; the sweep stays silent with no
+        // new errors. (The handler clears the Store mirror separately.)
+        assert!(inbox.retry_task("wt-err"));
+        assert!(store.is_blocked_slug("wt-err"));
+        store.clear_blocked_by_slug("wt-err");
+        inbox.poll_fleet(&mut store, 90);
+        assert_eq!(store.errors.len(), 1);
+        assert!(!inbox.retry_task("wt-unknown"));
+    }
+
+    #[test]
+    fn supervisor_retry_reset_restores_task() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use ade_workspace::TaskStatus;
+
+        let task = Task::new("feat-r", "mock").with_failure_limit(1);
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "x".into() },
+        ));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        assert_eq!(sup.task().status, TaskStatus::Blocked);
+        sup.retry_reset();
+        assert_eq!(sup.task().status, TaskStatus::Active);
+        assert!(sup.drain_errors().is_empty());
     }
 }
