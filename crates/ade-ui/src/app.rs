@@ -308,7 +308,7 @@ impl Render for AdeApp {
                             .flex_col()
                             .overflow_hidden()
                             .child(self.render_vm_banner())
-                            .child(self.render_error_strip())
+                            .child(self.render_error_strip(cx))
                             .child(if self.show_terminal {
                                 self.render_terminal(cx)
                             } else {
