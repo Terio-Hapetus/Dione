@@ -18,11 +18,22 @@ M8b0 DONE (render git-shape diffs — cherry-pick sống trên diff thật).
 M8b DONE (review queue: NeedsYou trước + chờ-lâu-nhất, fair queue).
 M8c1 DONE (annotate multi-line: two-click range + end_line).
 M8c2 DONE (thread replies: Reply + render + format).
-Next: M8d (branch paths) → M8e (viewer);
+M8d DONE (branch paths: Branch here + Hand off, giữ worktree).
+Next: M8e (viewer text-first) → đóng M8;
 push/PR chờ fix gh auth.
 
 ## Last commit (đã verify)
 
+- M8d (`8e0de12`):
+  - `create_branch_here` (check-ref-format + rev-parse nguồn + collision
+    fail sạch) + `hand_off_to_local` (merge `--no-ff` giữ worktree/branch;
+    tách `merge_branch` dùng chung dirty-guard)
+  - `Command::{CreateBranchHere, HandOffToLocal}` + handler arms; Diff tab
+    3 nút nhóm (Merge winner / Hand off / Branch here, tên từ composer)
+  - Tests: pin-branch/collision/bad-name/missing + handoff-giữ-worktree
+    (phát hiện gitlink `.ade-worktrees` trong test cũ, đã ghi nhận)
+  - Verified: worktree 15/15 + full suite (lưu ý flake `microvm` lẻ khi
+    chạy song song 4 crate, solo 34/34) + Xvfb smoke sạch
 - M8c2 (`13e1d68`):
   - `DiffNote.replies` + format `↳ reply` + pure `append_reply`
     (by value, target mất → false sạch)
