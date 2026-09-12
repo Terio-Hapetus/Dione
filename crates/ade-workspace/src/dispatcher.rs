@@ -1,15 +1,15 @@
 //! M4d dispatcher: kanban-lite sweep every 60s (Lab: reclaim + block).
 //!
 //! The dispatcher never touches backends or the `Store`; it only reports
-//! what the runtime should do. Full retry budgets and circuit breakers
-//! land in M7 — here `2 errors → Blocked` is just the hook.
+//! what the runtime should do. M7a wires per-task retry budgets here:
+//! `track` copies the task's `failure_limit`, `sweep_at` blocks past it.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use ade_core::TaskId;
 
-use super::task::Task;
+use super::task::{DEFAULT_FAILURE_LIMIT, Task};
 
 /// Default sweep cadence in seconds (ROADMAP M4).
 pub const DISPATCH_INTERVAL_SECS: u64 = 60;
@@ -27,6 +27,7 @@ pub enum DispatcherAction {
 struct TaskMeta {
     deadline: Option<Instant>,
     errors: u32,
+    limit: u8,
     last_beat: Instant,
 }
 
@@ -53,26 +54,29 @@ impl Dispatcher {
     }
 
     pub fn track(&mut self, task: &Task) {
-        let now = Instant::now();
-        self.tasks.insert(
-            task.id,
-            TaskMeta {
-                deadline: task.max_runtime_secs.map(|s| now + Duration::from_secs(s)),
-                errors: 0,
-                last_beat: now,
-            },
-        );
+        self.track_with_limit(task.id, task.max_runtime_secs, task.failure_limit);
     }
 
     /// Track a bare id with no deadline (stale-only reclaim). Used by the
     /// `TaskSweeper` adapter, which sees `TaskId`s, not full tasks.
     pub fn track_id(&mut self, id: TaskId) {
+        self.track_with_limit(id, None, DEFAULT_FAILURE_LIMIT);
+    }
+
+    /// Track a bare id with an explicit retry budget (M7a seam: the
+    /// runtime forwards each task's `failure_limit` without naming `Task`).
+    pub fn track_id_with_limit(&mut self, id: TaskId, limit: u8) {
+        self.track_with_limit(id, None, limit);
+    }
+
+    fn track_with_limit(&mut self, id: TaskId, max_runtime_secs: Option<u64>, limit: u8) {
         let now = Instant::now();
         self.tasks.insert(
             id,
             TaskMeta {
-                deadline: None,
+                deadline: max_runtime_secs.map(|s| now + Duration::from_secs(s)),
                 errors: 0,
+                limit: limit.max(1),
                 last_beat: now,
             },
         );
@@ -103,7 +107,7 @@ impl Dispatcher {
     pub fn sweep_at(&self, now: Instant) -> Vec<DispatcherAction> {
         let mut out = Vec::new();
         for (id, m) in &self.tasks {
-            if m.errors >= 2 {
+            if m.errors >= u32::from(m.limit) {
                 out.push(DispatcherAction::Blocked(*id));
             } else if m.deadline.is_some_and(|d| now >= d)
                 || now.duration_since(m.last_beat) > 2 * self.interval
@@ -176,5 +180,37 @@ mod tests {
         // Unknown ids are ignored, never crash.
         d.note_heartbeat(&TaskId::new());
         d.note_error(&TaskId::new());
+    }
+
+    #[test]
+    fn per_task_limit_moves_block_threshold() {
+        // limit 1: first error blocks immediately.
+        let mut d = Dispatcher::new();
+        let t = Task::new("a", "mock").with_failure_limit(1);
+        d.track(&t);
+        d.note_error(&t.id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(t.id)]);
+    }
+
+    #[test]
+    fn per_task_limit_tolerates_more_errors() {
+        // limit 3: two errors are still silent.
+        let mut d = Dispatcher::new();
+        let t = Task::new("a", "mock").with_failure_limit(3);
+        d.track(&t);
+        d.note_error(&t.id);
+        d.note_error(&t.id);
+        assert!(d.sweep().is_empty());
+        d.note_error(&t.id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(t.id)]);
+    }
+
+    #[test]
+    fn bare_id_limit_override() {
+        let mut d = Dispatcher::new();
+        let id = TaskId::new();
+        d.track_id_with_limit(id, 1);
+        d.note_error(&id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(id)]);
     }
 }
