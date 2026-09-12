@@ -295,6 +295,7 @@ fn resolve_one(
             url,
             sha256,
             filename: filename.into(),
+            max_time_secs: ImageSpec::DEFAULT_MAX_TIME_SECS,
         },
         cache_dir,
     )

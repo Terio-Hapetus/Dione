@@ -8,9 +8,15 @@ pub struct ImageSpec {
     pub url: String,
     pub sha256: String,
     pub filename: String,
+    /// curl `--max-time` seconds (A3: first-boot downloads must be
+    /// bounded; the 30s boot budget covers daemon bring-up only).
+    pub max_time_secs: u64,
 }
 
 impl ImageSpec {
+    /// Generous first-boot budget (cloud images are hundreds of MB).
+    pub const DEFAULT_MAX_TIME_SECS: u64 = 600;
+
     pub fn cached_path(&self, cache_dir: &Path) -> PathBuf {
         cache_dir.join(&self.filename)
     }
@@ -46,11 +52,15 @@ pub fn ensure_image(spec: &ImageSpec, cache_dir: &Path) -> anyhow::Result<PathBu
     }
     std::fs::create_dir_all(cache_dir)?;
     let tmp = cache_dir.join(format!("{}.part", spec.filename));
-    let out = Command::new("curl")
+    // `ADE_CURL_BIN` override exists for tests (fake curl stub).
+    let curl = std::env::var("ADE_CURL_BIN").unwrap_or_else(|_| "curl".into());
+    let out = Command::new(curl)
         .args([
             "-fSL",
             "--retry",
             "3",
+            "--max-time",
+            &spec.max_time_secs.to_string(),
             "-C",
             "-",
             "-o",
@@ -124,6 +134,7 @@ mod tests {
             url: format!("file://{}", src.display()),
             sha256: sha_of(b"fake-kernel-bytes"),
             filename: "asset.bin".into(),
+            max_time_secs: ImageSpec::DEFAULT_MAX_TIME_SECS,
         };
         let cache = tmp_cache("cache");
         let p1 = ensure_image(&spec, &cache).unwrap();
@@ -145,6 +156,7 @@ mod tests {
             url: format!("file://{}", src.display()),
             sha256: "0".repeat(64),
             filename: "bad.bin".into(),
+            max_time_secs: ImageSpec::DEFAULT_MAX_TIME_SECS,
         };
         let cache = tmp_cache("cache2");
         assert!(ensure_image(&spec, &cache).is_err());
@@ -152,5 +164,61 @@ mod tests {
         assert!(!cache.join("bad.bin").exists());
         let _ = std::fs::remove_dir_all(&cache);
         let _ = std::fs::remove_dir_all(&src_dir);
+    }
+
+    #[test]
+    fn max_time_reaches_curl() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // Fake curl: records argv, then fails (no network in unit tests).
+        let dir = tmp_cache("curlstub");
+        let bin = dir.join("curl");
+        std::fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\necho \"$@\" > \"{}/args.txt\"\nexit 7\n",
+                dir.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let spec = ImageSpec {
+            url: "https://example.invalid/asset.bin".into(),
+            sha256: "skip".into(),
+            filename: "asset.bin".into(),
+            max_time_secs: 123,
+        };
+        let cache = tmp_cache("cache3");
+        let _guard = EnvGuard::set("ADE_CURL_BIN", &bin.to_string_lossy());
+        assert!(ensure_image(&spec, &cache).is_err());
+        let argv = std::fs::read_to_string(dir.join("args.txt")).unwrap();
+        assert!(argv.contains("--max-time 123"), "{argv}");
+        let _ = std::fs::remove_dir_all(&cache);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Restores an env var on drop (unique var: parallel-test safe).
+    struct EnvGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, val: &str) -> Self {
+            let prev = std::env::var(key).ok();
+            unsafe { std::env::set_var(key, val) };
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.prev {
+                    Some(v) => std::env::set_var(self.key, v),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
     }
 }

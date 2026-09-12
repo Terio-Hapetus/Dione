@@ -6,6 +6,9 @@ use super::backend::{VmBackend, VmError};
 use super::config::{VmConfig, VmHandle, VmState};
 
 /// Per-state timeouts (spec: boot 30s, ssh 20s, mount 10s).
+/// `boot` bounds daemon bring-up (api.sock wait, vm.create/boot calls —
+/// each sub-bounded); first-boot asset downloads carry their own budget
+/// (`ImageSpec::max_time_secs`), since images are hundreds of MB.
 #[derive(Debug, Clone, Copy)]
 pub struct VmTimeouts {
     pub boot: Duration,
