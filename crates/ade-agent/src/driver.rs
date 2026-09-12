@@ -46,14 +46,37 @@ pub fn open_task_with(
     agent_ref: &str,
     prompt: &str,
     cwd: &Path,
+    ws: Box<dyn WorkspaceProvider>,
+) -> anyhow::Result<TaskId> {
+    open_registered_task(inbox, Task::new(slug, agent_ref), prompt, cwd, ws)
+}
+
+/// Open a continuation task (M7c handoff): fresh id and budget, parent
+/// linked, summary inherited. `slug` is the child's own worktree slug.
+pub fn open_child_task(
+    inbox: &FleetInbox,
+    parent: &Task,
+    slug: &str,
+    agent_ref: &str,
+    prompt: &str,
+    cwd: &Path,
+    ws: Box<dyn WorkspaceProvider>,
+) -> anyhow::Result<TaskId> {
+    open_registered_task(inbox, parent.child(slug, agent_ref), prompt, cwd, ws)
+}
+
+fn open_registered_task(
+    inbox: &FleetInbox,
+    task: Task,
+    prompt: &str,
+    cwd: &Path,
     mut ws: Box<dyn WorkspaceProvider>,
 ) -> anyhow::Result<TaskId> {
     if !inbox.has_sweeper() {
         inbox.register_sweeper(Box::new(FleetSweeper::new()));
     }
-    let task = Task::new(slug, agent_ref);
     let id = task.id;
-    let mut backend: Box<dyn AgentBackend> = match agent_ref {
+    let mut backend: Box<dyn AgentBackend> = match task.agent_ref.as_str() {
         "mock" => Box::new(MockAgent::new()),
         "opencode" => Box::new(OpencodeAdapter::new()),
         "terminal" => {
@@ -98,6 +121,34 @@ mod tests {
         let inbox = FleetInbox::new();
         assert!(open_host_task(&inbox, "wt-a", "claude", "hi").is_err());
         assert_eq!(inbox.task_count(), 0);
+    }
+
+    #[test]
+    fn child_task_flows_with_handoff_context() {
+        let inbox = FleetInbox::new();
+        let parent = Task::new("wt-p", "mock")
+            .with_summary("did X, stuck on Y")
+            .with_failure_limit(3);
+        let pid = parent.id;
+        let ws: Box<dyn WorkspaceProvider> = Box::new(MockWorkspace::new());
+        let cid = open_child_task(
+            &inbox,
+            &parent,
+            "wt-c",
+            "mock",
+            "continue",
+            Path::new("/tmp"),
+            ws,
+        )
+        .unwrap();
+        assert_ne!(cid, pid);
+        assert_eq!(inbox.task_count(), 1);
+        // The child's prompt drains under its own fresh id.
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        let msgs = store.transcripts.get(&cid).cloned().unwrap_or_default();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].text, "continue");
     }
 
     /// Provider handing out scripted shells (no pty, no network).

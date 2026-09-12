@@ -7,7 +7,7 @@
 
 use ade_core::state::Store;
 use ade_core::transcript::TaskId;
-use ade_workspace::{Task, WorkspaceProvider};
+use ade_workspace::{Task, TaskStatus, WorkspaceProvider, handoff_summary};
 
 use super::agent::{AgentBackend, AgentEvent, AgentStatus, apply_agent_event};
 
@@ -50,12 +50,22 @@ impl Supervisor {
     /// read-side backends (`OpencodeAdapter`) contribute their cursor
     /// stream too. `Error` statuses are also recorded for the M7a retry
     /// budget (forwarded via `drain_errors`); successes clear the streak.
+    /// On the transition to `Blocked`, a handoff summary is snapshotted
+    /// from the transcript tail unless one was set by hand (M7c).
     pub fn tick(&mut self, store: &mut Store) {
         for ev in self.backend.collect(store) {
             match &ev {
                 AgentEvent::Status(id, AgentStatus::Error { .. }) => {
                     self.error_hits.push(*id);
-                    self.task.note_failure();
+                    if self.task.note_failure() == TaskStatus::Blocked
+                        && self.task.summary.is_none()
+                    {
+                        let id = self.task.id;
+                        self.task.summary = store
+                            .transcripts
+                            .get(&id)
+                            .and_then(|msgs| handoff_summary(msgs, 3, 500));
+                    }
                 }
                 AgentEvent::Status(_, AgentStatus::Idle)
                 | AgentEvent::Status(_, AgentStatus::Done) => {
@@ -108,6 +118,15 @@ impl ade_core::runtime::fleet::SupervisedTask for Supervisor {
 
     fn retry_reset(&mut self) {
         Supervisor::retry_reset(self)
+    }
+
+    fn handoff(&self) -> Option<ade_core::runtime::fleet::TaskHandoff> {
+        Some(ade_core::runtime::fleet::TaskHandoff {
+            parent: self.task.id,
+            slug: self.task.slug.clone(),
+            agent_ref: self.task.agent_ref.clone(),
+            summary: self.task.summary.clone(),
+        })
     }
 
     fn bind_session(&mut self, session_id: &str) {
@@ -354,5 +373,72 @@ mod tests {
         sup.retry_reset();
         assert_eq!(sup.task().status, TaskStatus::Active);
         assert!(sup.drain_errors().is_empty());
+    }
+
+    #[test]
+    fn block_snapshots_handoff_summary_unless_handwritten() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use ade_core::transcript::{Role, UnifiedMessage};
+
+        fn seed(store: &mut Store, id: TaskId, texts: &[&str]) {
+            for (n, t) in texts.iter().enumerate() {
+                store.push_unified(UnifiedMessage {
+                    id: format!("m{n}"),
+                    task: id,
+                    role: Role::Agent,
+                    text: (*t).into(),
+                    tool: None,
+                    ts: 0,
+                });
+            }
+        }
+
+        // Auto-snapshot from the transcript tail on Blocked.
+        let task = Task::new("feat-h", "mock").with_failure_limit(1);
+        let id = task.id;
+        let mut store = Store::default();
+        seed(&mut store, id, &["tried oauth", "stuck on refresh"]);
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "x".into() },
+        ));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        sup.tick(&mut store);
+        assert_eq!(
+            sup.task().summary.as_deref(),
+            Some("agent: tried oauth\nagent: stuck on refresh")
+        );
+
+        // A handwritten summary is never overwritten.
+        let task2 = Task::new("feat-h2", "mock")
+            .with_failure_limit(1)
+            .with_summary("human note");
+        let id2 = task2.id;
+        seed(&mut store, id2, &["other work"]);
+        let mut backend2 = MockAgent::new();
+        backend2.emit(AgentEvent::Status(
+            id2,
+            AgentStatus::Error { msg: "y".into() },
+        ));
+        let mut sup2 = Supervisor::new(task2, Box::new(backend2), Box::new(MockWorkspace::new()));
+        sup2.tick(&mut store);
+        assert_eq!(sup2.task().summary.as_deref(), Some("human note"));
+    }
+
+    #[test]
+    fn seam_handoff_snapshot() {
+        use ade_core::runtime::fleet::{SupervisedTask, TaskHandoff};
+
+        let (sup, id) = supervisor_with_prompt("hello");
+        assert_eq!(
+            SupervisedTask::handoff(&sup),
+            Some(TaskHandoff {
+                parent: id,
+                slug: "feat-x".into(),
+                agent_ref: "mock".into(),
+                summary: None,
+            })
+        );
     }
 }

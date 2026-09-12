@@ -16,4 +16,4 @@ pub use dispatcher::{DISPATCH_INTERVAL_SECS, Dispatcher, DispatcherAction};
 pub use host::{HostProvider, HostShell};
 pub use microvm::{MicroVm, PathMapping, PreviewPorts, SshTarget, shell_quote};
 pub use provider::{ExecOut, MockWorkspace, ShellChannel, WorkspaceProvider, strip_ansi};
-pub use task::{DEFAULT_FAILURE_LIMIT, Task, TaskStatus};
+pub use task::{DEFAULT_FAILURE_LIMIT, Task, TaskStatus, handoff_summary};

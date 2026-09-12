@@ -42,10 +42,25 @@ pub trait SupervisedTask: Send {
     /// Manual retry (M7b): clear budget state so the task runs again.
     /// Default: no-op (stateless tasks). The inbox re-tracks afterwards.
     fn retry_reset(&mut self) {}
+    /// Handoff snapshot for opening a continuation task (M7c).
+    /// Default: this task cannot be continued (stateless stubs).
+    fn handoff(&self) -> Option<TaskHandoff> {
+        None
+    }
     /// Record which session feeds this task. Default: ignore.
     fn bind_session(&mut self, _session_id: &str) {}
     /// Forget a retired session. Default: ignore.
     fn unbind_session(&mut self, _session_id: &str) {}
+}
+
+/// Handoff data (M7c): everything a driver needs to open a continuation
+/// task without naming backends or workspaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskHandoff {
+    pub parent: TaskId,
+    pub slug: String,
+    pub agent_ref: String,
+    pub summary: Option<String>,
 }
 
 /// Kanban-lite sweep report for one task. Pure report, no side effects.
