@@ -14,10 +14,22 @@ M7c DONE (handoff minimal: parent + summary, data-only UI).
 M7d DONE (base origin/HEAD offline-safe + cấm trùng slug).
 M7 CLOSED (retry budget + handoff + hygiene, Host-only).
 M8a DONE (hunk cherry-pick core + Diff tab picks, trên branch M7).
-Next: M8b (review queue sort) → M8c/d/e; push/PR chờ fix gh auth.
+M8b0 DONE (render git-shape diffs — cherry-pick sống trên diff thật).
+M8b DONE (review queue: NeedsYou trước + chờ-lâu-nhất, fair queue).
+Next: M8c (annotate multi-line) → M8d (branch paths) → M8e (viewer);
+push/PR chờ fix gh auth.
 
 ## Last commit (đã verify)
 
+- M8b (`c78e536` + `1c910b0`):
+  - M8b0: `file_rows` đọc cả git-shape `{raw,files}` → 1 file block
+    (fix diff git-first hiện 0 file; cherry-pick M8a sống lại) + 3 tests
+  - M8b: `review_rank/sort_review_sids/sort_review_scopes` — NeedsYou
+    trước, rồi updated cũ nhất; main cạnh tranh bình đẳng; sid mồ côi
+    chìm đáy; thay `sids.sort()` + main-first cũ trong `render_diff`
+  - Tests: queue order/scope-fair/sink-unknown (state_tests) + Xvfb smoke
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+  xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8a (`41ca7d1`, trên branch `feat/m7-fleet-reliability`):
   - Core: `Hunk` + `split_hunks` (pure) + `apply_hunks` (dựng patch tối
     thiểu → `git apply` qua stdin; rỗng = no-op; conflict fail sạch)
