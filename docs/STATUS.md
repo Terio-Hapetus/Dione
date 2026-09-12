@@ -7,11 +7,25 @@ M5 lõi DONE (CH-only, live-gated).
 M6 Terminal Host-only DONE (driver + pty + adapter + kit + ssh-shell).
 M6-VM W1–W3 DONE (driver provider ngoài, VmManager-thread, SSH tab).
 M5-live prep DONE (probe readable, user ubuntu, image max-time).
-Next: live KVM lần đầu, rồi M7.
+M7a DONE (per-task retry budget + error→sweep→block chain, Host-only).
+Next: M7b (Blocked persist + UI + retry tay), rồi M7c/d; live KVM song song.
 
 ## Last commit (đã verify)
 
-- W1–W3 + M5-live prep (không KVM vẫn xanh):
+- M7a retry budget (`f61982f` + `2421649`, Host-only, không KVM vẫn xanh):
+  - `Task { failure_limit = 2, failure_count, status: Active/Retrying/Blocked }`
+    + `with_failure_limit`/`note_failure`/`note_success`/`retry_reset`
+  - `Dispatcher` limit-aware (`track` copy limit, `track_id_with_limit`;
+    hết hardcode `>= 2`); `FleetSweeper` forward limit
+  - Error chain: `Supervisor::tick` thu `AgentStatus::Error` →
+    `drain_errors` → `poll_fleet` → `note_task_error` → sweep `Blocked`;
+    `bind_new` forward `failure_limit`; `FleetInbox: Default` (fix clippy
+    `new_without_default` có sẵn)
+  - Tests: budget default/custom/clamp, sweep threshold, forward errors,
+    chain đầy đủ inbox→sweep→blocked (`inbox_chain_blocks_erroring_task…`)
+- Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
+  sạch + `cargo test -p ade-workspace -p ade-agent -p ade-core` xanh.
+- Trước đó W1–W3 + M5-live prep (không KVM vẫn xanh, 132 passed):
   - `open_task_with` (provider ngoài + nhánh terminal) — Lab 4 fan-out
     headless xanh; callsite production (`rt.fleet()`) còn lại
   - `VmThread` (Mock/CH theo probe, keys + preview ports có chủ) báo
@@ -19,8 +33,6 @@ Next: live KVM lần đầu, rồi M7.
   - SSH tab chọn Host-vs-guest (`Ready` → `MicroVm::shell` + `-L`,
     endpoint hiện trong badge); A1 probe readable, A2 user ubuntu,
     A3 image `--max-time` + runbook live Lab 2
-- Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test --workspace` 132 passed (0 failed).
 
 ## Trước đó (M5, đã verify)
 
