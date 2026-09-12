@@ -16,11 +16,20 @@ M7 CLOSED (retry budget + handoff + hygiene, Host-only).
 M8a DONE (hunk cherry-pick core + Diff tab picks, trên branch M7).
 M8b0 DONE (render git-shape diffs — cherry-pick sống trên diff thật).
 M8b DONE (review queue: NeedsYou trước + chờ-lâu-nhất, fair queue).
-Next: M8c (annotate multi-line) → M8d (branch paths) → M8e (viewer);
+M8c1 DONE (annotate multi-line: two-click range + end_line).
+Next: M8c2 (thread replies) → M8d (branch paths) → M8e (viewer);
 push/PR chờ fix gh auth.
 
 ## Last commit (đã verify)
 
+- M8c1 (`c0aa3b7`):
+  - `DiffNote.end_line` + format `L12-L18` + pure `resolve_range`
+    (anchor → range, cùng dòng → single, khác file → dời anchor)
+  - UI: click 1 đặt anchor (+ hint composer), click 2 tạo range;
+    submit/render/composer hiển thị range
+  - Tests: format + state machine trong state_tests + Xvfb smoke
+- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+  xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8b (`c78e536` + `1c910b0`):
   - M8b0: `file_rows` đọc cả git-shape `{raw,files}` → 1 file block
     (fix diff git-first hiện 0 file; cherry-pick M8a sống lại) + 3 tests
