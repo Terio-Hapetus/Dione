@@ -34,6 +34,26 @@ pub(crate) async fn handle_command(
         Command::CreateWorktree { slug } => create_worktree(st, slot, slug, inbox).await,
         Command::RemoveWorktree { slug } => remove_worktree(st, &slug, inbox).await,
         Command::MergeWorktree { slug } => merge_worktree(st, &slug, inbox).await,
+        Command::CreateBranchHere { slug, name } => {
+            match worktree::create_branch_here(&st.repo, &slug, &name).await {
+                Ok(branch) => st
+                    .store
+                    .push_error(format!("fleet: branched {slug} here as {branch}")),
+                Err(e) => st.store.push_error(format!("branch here failed: {e:#}")),
+            }
+        }
+        Command::HandOffToLocal { slug } => {
+            match worktree::hand_off_to_local(&st.repo, &slug).await {
+                Ok(summary) => {
+                    tracing::info!("handed off {slug}: {summary}");
+                    st.store
+                        .push_error(format!("fleet: {slug} handed off to local (worktree kept)"));
+                }
+                Err(e) => st
+                    .store
+                    .push_error(format!("hand off {slug} failed: {e:#}")),
+            }
+        }
         Command::SelectWorktree { slug } => select_worktree(st, &slug).await,
         Command::SelectSession { id } => {
             if st.store.sessions.contains_key(&id) {

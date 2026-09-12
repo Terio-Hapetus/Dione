@@ -221,6 +221,18 @@ pub async fn git_diff(path: &Path) -> Result<GitDiff, WorktreeError> {
 /// the worktree. Fails cleanly on a dirty repo or conflicts so the user can
 /// resolve by hand; nothing is deleted in that case.
 pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeError> {
+    let out = merge_branch(repo, slug, &format!("merge: {slug}")).await?;
+    remove(repo, slug).await?;
+    Ok(out)
+}
+
+/// Hand off to local (M8d): merge like a winner but keep the worktree
+/// and its branch so the user can continue locally.
+pub async fn hand_off_to_local(repo: &Path, slug: &str) -> Result<String, WorktreeError> {
+    merge_branch(repo, slug, &format!("handoff: {slug}")).await
+}
+
+async fn merge_branch(repo: &Path, slug: &str, message: &str) -> Result<String, WorktreeError> {
     let dirty = run_git(repo, &["status", "--porcelain"]).await?;
     if !dirty.trim().is_empty() {
         return Err(WorktreeError::Git(
@@ -228,18 +240,40 @@ pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeErr
         ));
     }
     let branch = branch_name(slug);
-    let out = run_git(
+    run_git(repo, &["merge", "--no-ff", &branch, "-m", message])
+        .await
+        .map_err(|e| {
+            WorktreeError::Git(format!(
+                "merge conflict in {branch} — resolve in the repo, then remove the worktree by hand: {e}"
+            ))
+        })
+        .map(|out| out.trim().to_string())
+}
+
+/// Create a local branch `name` at `ade/<slug>` (M8d "create branch
+/// here"): keep a named pointer to the agent's work for local follow-up.
+/// Fails cleanly on bad names, missing source branches, or collisions.
+pub async fn create_branch_here(
+    repo: &Path,
+    slug: &str,
+    name: &str,
+) -> Result<String, WorktreeError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WorktreeError::InvalidSlug(name.to_string()));
+    }
+    run_git(repo, &["check-ref-format", "--branch", name])
+        .await
+        .map_err(|_| WorktreeError::InvalidSlug(name.to_string()))?;
+    let from = branch_name(slug);
+    run_git(
         repo,
-        &["merge", "--no-ff", &branch, "-m", &format!("merge: {slug}")],
+        &["rev-parse", "--verify", &format!("refs/heads/{from}")],
     )
     .await
-    .map_err(|e| {
-        WorktreeError::Git(format!(
-            "merge conflict in {branch} — resolve in the repo, then remove the worktree by hand: {e}"
-        ))
-    })?;
-    remove(repo, slug).await?;
-    Ok(out.trim().to_string())
+    .map_err(|_| WorktreeError::Git(format!("no such branch: {from}")))?;
+    run_git(repo, &["branch", name, &from]).await?;
+    Ok(name.to_string())
 }
 /// One `@@` hunk of a unified diff (M8a cherry-pick). `header` is the
 /// `@@ -a,b +c,d @@` line; `lines` are the body (` `/`+`/`-`) lines.

@@ -293,12 +293,54 @@ impl AdeApp {
                         slug: merge_slug.clone(),
                     });
                 });
+                let handoff_slug = scope.clone();
+                let handoff = cx.listener(move |app, _: &ClickEvent, _, _| {
+                    app.rt.send(Command::HandOffToLocal {
+                        slug: handoff_slug.clone(),
+                    });
+                });
+                // Branch name from the composer, else `local/<slug>`
+                // (same pattern as sidebar `+ wt`).
+                let branch_slug = scope.clone();
+                let branch = cx.listener(move |app, _: &ClickEvent, window, cx| {
+                    let typed = app.input.read(cx).value().to_string();
+                    let name = if typed.trim().is_empty() {
+                        format!("local/{branch_slug}")
+                    } else {
+                        typed
+                    };
+                    app.rt.send(Command::CreateBranchHere {
+                        slug: branch_slug.clone(),
+                        name,
+                    });
+                    app.input.update(cx, |st, cx| st.set_value("", window, cx));
+                });
                 head_row = head_row.child(
-                    Button::new(SharedString::from(format!("merge-{scope}")))
-                        .label("Merge winner")
-                        .xsmall()
-                        .compact()
-                        .on_click(merge),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            Button::new(SharedString::from(format!("merge-{scope}")))
+                                .label("Merge winner")
+                                .xsmall()
+                                .compact()
+                                .on_click(merge),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("handoff-{scope}")))
+                                .label("Hand off")
+                                .xsmall()
+                                .compact()
+                                .on_click(handoff),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("branch-{scope}")))
+                                .label("Branch here")
+                                .xsmall()
+                                .compact()
+                                .on_click(branch),
+                        ),
                 );
             }
             let mut section = div().flex().flex_col().gap_1().child(head_row);

@@ -320,3 +320,70 @@ async fn cherry_pick_rejects_empty_selection_and_bad_input() {
     assert!(worktree::apply_hunks(&repo, "f.txt", &[bad]).await.is_err());
     cleanup(&repo);
 }
+
+#[tokio::test]
+async fn create_branch_here_pins_agent_branch() {
+    let repo = init_repo();
+    let r = worktree::create(&repo, "feat-br").await.unwrap();
+    std::fs::write(r.path.join("br.txt"), "b\n").unwrap();
+    sh(&r.path, &["add", "."]);
+    sh(&r.path, &["commit", "-qm", "br work"]);
+
+    let name = worktree::create_branch_here(&repo, "feat-br", "local/feat-br")
+        .await
+        .unwrap();
+    assert_eq!(name, "local/feat-br");
+    assert_eq!(
+        git_out(&repo, &["rev-parse", "local/feat-br"]),
+        git_out(&repo, &["rev-parse", "ade/feat-br"])
+    );
+    // Collision, bad names, and missing source branches fail cleanly.
+    assert!(
+        worktree::create_branch_here(&repo, "feat-br", "local/feat-br")
+            .await
+            .is_err()
+    );
+    assert!(
+        worktree::create_branch_here(&repo, "feat-br", "  ")
+            .await
+            .is_err()
+    );
+    assert!(
+        worktree::create_branch_here(&repo, "feat-br", "bad..name")
+            .await
+            .is_err()
+    );
+    assert!(
+        worktree::create_branch_here(&repo, "nope", "local/x")
+            .await
+            .is_err()
+    );
+
+    worktree::remove(&repo, "feat-br").await.unwrap();
+    sh(&repo, &["branch", "-D", "local/feat-br"]);
+    cleanup(&repo);
+}
+
+#[tokio::test]
+async fn hand_off_merges_but_keeps_worktree() {
+    let repo = init_repo();
+    let r = worktree::create(&repo, "feat-ho").await.unwrap();
+    std::fs::write(r.path.join("ho.txt"), "h\n").unwrap();
+    sh(&r.path, &["add", "."]);
+    sh(&r.path, &["commit", "-qm", "ho work"]);
+    // Diverge main (also sweeps the worktree gitlink into the index,
+    // like the merge_winner test, so the dirty guard passes).
+    std::fs::write(repo.join("main.txt"), "main\n").unwrap();
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "main work"]);
+
+    let summary = worktree::hand_off_to_local(&repo, "feat-ho").await.unwrap();
+    assert!(summary.contains("Merge"), "unexpected: {summary}");
+    assert_eq!(std::fs::read_to_string(repo.join("ho.txt")).unwrap(), "h\n");
+    // Worktree AND branch survive (unlike merge_winner).
+    assert!(r.path.exists());
+    assert!(git_out(&repo, &["branch", "--list", "ade/feat-ho"]).contains("ade/feat-ho"));
+
+    worktree::remove(&repo, "feat-ho").await.unwrap();
+    cleanup(&repo);
+}

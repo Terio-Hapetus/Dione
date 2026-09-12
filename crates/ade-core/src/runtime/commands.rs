@@ -40,6 +40,15 @@ pub enum Command {
         file: String,
         hunks: Vec<crate::worktree::Hunk>,
     },
+    /// Create branch `name` at `ade/<slug>` (M8d "create branch here").
+    CreateBranchHere {
+        slug: String,
+        name: String,
+    },
+    /// Merge like a winner but keep the worktree (M8d "hand off to local").
+    HandOffToLocal {
+        slug: String,
+    },
     SendNotes {
         session_id: String,
         notes: Vec<crate::state::DiffNote>,
