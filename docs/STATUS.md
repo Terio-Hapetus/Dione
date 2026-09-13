@@ -25,6 +25,20 @@ Next: push/PR (chờ fix gh auth) → M9 (Cost/BYOK) hoặc live KVM.
 
 ## Last commit (đã verify)
 
+- Audit fixes (`4a9d3c9` + `a7336f4` + `31f4e73` + `ce31a27`, sau review
+  chéo M7+M8 phát hiện 1 blocker + majors):
+  - Blocker gỡ: git-shape split theo file (`split_files` core) → Apply
+    đúng file; guard `..`/absolute/`,`/sentinel; giữ picks khi fail;
+    không gửi khi OOB; chain test multi-file
+  - M7: success-reset qua seam (trừ Blocked), deadline forward
+    (`track_task_full`), bind giữ errors, driver double-check register,
+    `drop_scope` dọn blocked mirror
+  - M8c UX: hint single + nút × hủy anchor, click dòng xóa reply,
+    reply rơi giữ text, Enter với anchor không gửi chat nhầm,
+    note ID gồm end_line
+  - Parse: headers file sau (`diff --git`/`index`/`new file`/`Binary`…)
+    không bao giờ bị đánh số dòng
+- Verified: `cargo test --workspace` xanh full + Xvfb smoke sạch.
 - M8e (`630b1c9`):
   - `views/file.rs` mới: `OpenFile` + `lang_of` (tag sẵn cho TS) +
     `checkout_for` (worktree path; main suy root từ worktree có sẵn) +
