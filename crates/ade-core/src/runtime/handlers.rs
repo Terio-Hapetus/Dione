@@ -187,6 +187,9 @@ pub(crate) fn drop_scope(st: &mut LoopState, slug: &str, sids: &[String], inbox:
     for sid in sids {
         st.store.retire_session(sid);
     }
+    // Fix-2: a removed worktree must not leave a stale blocked mirror
+    // behind (its tasks are gone; retry would find nothing).
+    st.store.clear_blocked_by_slug(slug);
     st.store.remove_worktree(slug);
     st.clients.remove(slug);
     st.pumped.remove(slug);
@@ -339,5 +342,18 @@ mod tests {
         st.store.session_scope.insert("s1".into(), "wt-a".into());
         st.store.session_scope.insert("s2".into(), "wt-b".into());
         assert_eq!(scoped_sessions(&st, "wt-a"), vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn drop_scope_clears_blocked_mirror() {
+        use crate::transcript::TaskId;
+
+        let mut st = empty_state();
+        let id = TaskId::new();
+        st.store.mark_blocked(id, "wt-a");
+        assert!(st.store.is_blocked_slug("wt-a"));
+        drop_scope(&mut st, "wt-a", &[], &FleetInbox::new());
+        assert!(!st.store.is_blocked_slug("wt-a"));
+        assert!(st.store.blocked.is_empty());
     }
 }

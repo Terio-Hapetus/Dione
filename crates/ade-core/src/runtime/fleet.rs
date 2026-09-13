@@ -30,6 +30,11 @@ pub trait SupervisedTask: Send {
     fn failure_limit(&self) -> u8 {
         2
     }
+    /// Soft runtime cap in seconds for stale reclaim (fix-2). Default
+    /// None (stale-only); `Supervisor` overrides it from its `Task`.
+    fn max_runtime_secs(&self) -> Option<u64> {
+        None
+    }
     /// Drain new backend events into the store. Must be non-blocking:
     /// it runs inside the runtime `select!` loop.
     fn tick(&mut self, store: &mut Store);
@@ -37,6 +42,12 @@ pub trait SupervisedTask: Send {
     /// entry per observed `Error` event. Default: no errors. The inbox
     /// forwards these to the sweeper after every drain.
     fn drain_errors(&mut self) -> Vec<TaskId> {
+        Vec::new()
+    }
+    /// Backend success hits since the last call (fix-2): one entry per
+    /// observed terminal-good status (`Idle`/`Done`). The inbox forwards
+    /// these so an error→success→error cycle never blocks under budget.
+    fn drain_successes(&mut self) -> Vec<TaskId> {
         Vec::new()
     }
     /// Manual retry (M7b): clear budget state so the task runs again.
@@ -85,6 +96,14 @@ pub trait TaskSweeper: Send {
     }
     fn untrack_task(&mut self, task: &TaskId);
     fn note_task_error(&mut self, task: &TaskId);
+    /// Record a success (fix-2): resets the error streak. Default: no-op
+    /// so existing sweepers compile untouched.
+    fn note_task_success(&mut self, _task: &TaskId) {}
+    /// Track with budget + deadline (fix-2). Default folds back to the
+    /// budget-only hook so existing sweepers compile untouched.
+    fn track_task_full(&mut self, task: TaskId, limit: u8, _max_runtime_secs: Option<u64>) {
+        self.track_task_with_limit(task, limit);
+    }
     fn sweep(&self) -> Vec<SweepAction>;
 }
 
@@ -171,17 +190,20 @@ impl FleetInbox {
     }
 
     /// Hook A body: drain tasks after reconcile, forward backend error
-    /// hits to the sweeper (M7a retry budget), sweep ~every 60s.
+    /// and success hits to the sweeper (M7a retry budget + fix-2 reset),
+    /// sweep ~every 60s.
     /// Blocked tasks are mirrored into the store and untracked so later
     /// sweeps stay silent until a manual retry (M7b).
     /// Public so drivers/tests can drive the fleet without a server.
     pub fn poll_fleet(&self, store: &mut Store, tick: u64) {
         let mut error_hits = Vec::new();
+        let mut success_hits = Vec::new();
         let mut slugs = BTreeMap::new();
         if let Ok(mut tasks) = self.tasks.lock() {
             drain_fleet(&mut tasks, store);
             for t in tasks.iter_mut() {
                 error_hits.extend(t.drain_errors());
+                success_hits.extend(t.drain_successes());
                 slugs.insert(t.task_id(), t.slug().unwrap_or("").to_string());
             }
         }
@@ -190,6 +212,9 @@ impl FleetInbox {
         {
             for id in &error_hits {
                 sw.note_task_error(id);
+            }
+            for id in &success_hits {
+                sw.note_task_success(id);
             }
             if sweep_due(tick) {
                 let blocked = apply_sweep_with_slugs(store, &sw.sweep(), &slugs);
@@ -217,8 +242,8 @@ impl FleetInbox {
     }
 
     /// Manual retry (M7b): reset every live task owning `slug` and
-    /// re-track it with its own budget. Returns false when no live task
-    /// owns `slug`. The caller clears the `Store.blocked` mirror.
+    /// re-track it with its own budget + deadline. Returns false when no
+    /// live task owns `slug`. The caller clears the `Store.blocked` mirror.
     pub fn retry_task(&self, slug: &str) -> bool {
         if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
             let mut retried = false;
@@ -226,10 +251,11 @@ impl FleetInbox {
                 if t.slug().is_some_and(|sl| sl == slug) {
                     let id = t.task_id();
                     let limit = t.failure_limit();
+                    let deadline = t.max_runtime_secs();
                     t.retry_reset();
                     if let Some(sw) = sw.as_mut() {
                         sw.untrack_task(&id);
-                        sw.track_task_with_limit(id, limit);
+                        sw.track_task_full(id, limit, deadline);
                     }
                     retried = true;
                 }
@@ -308,7 +334,7 @@ pub(crate) fn bind_new_session(
         if t.slug().is_some_and(|sl| sl == scope) {
             t.bind_session(session_id);
             if let Some(sw) = sweeper.as_mut() {
-                sw.track_task_with_limit(t.task_id(), t.failure_limit());
+                sw.track_task_full(t.task_id(), t.failure_limit(), t.max_runtime_secs());
             }
         }
     }

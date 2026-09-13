@@ -18,6 +18,9 @@ pub struct Supervisor {
     task: Task,
     /// Backend `Error` hits since the last inbox drain (M7a retry budget).
     error_hits: Vec<TaskId>,
+    /// Backend good-terminal hits (`Idle`/`Done`) since the last drain
+    /// (fix-2 success reset, mirrors `error_hits`).
+    success_hits: Vec<TaskId>,
 }
 
 impl Supervisor {
@@ -27,6 +30,7 @@ impl Supervisor {
             ws,
             task,
             error_hits: Vec::new(),
+            success_hits: Vec::new(),
         }
     }
 
@@ -67,9 +71,14 @@ impl Supervisor {
                             .and_then(|msgs| handoff_summary(msgs, 3, 500));
                     }
                 }
+                // Success resets the streak — except on a Blocked task,
+                // which must not silently un-block the sweeper side.
                 AgentEvent::Status(_, AgentStatus::Idle)
-                | AgentEvent::Status(_, AgentStatus::Done) => {
+                | AgentEvent::Status(_, AgentStatus::Done)
+                    if self.task.status != TaskStatus::Blocked =>
+                {
                     self.task.note_success();
+                    self.success_hits.push(self.task.id);
                 }
                 _ => {}
             }
@@ -82,10 +91,16 @@ impl Supervisor {
         std::mem::take(&mut self.error_hits)
     }
 
+    /// Backend success hits since the last call; drains the buffer.
+    pub fn drain_successes(&mut self) -> Vec<TaskId> {
+        std::mem::take(&mut self.success_hits)
+    }
+
     /// Manual retry (M7b): budget restored, error buffer cleared.
     pub fn retry_reset(&mut self) {
         self.task.retry_reset();
         self.error_hits.clear();
+        self.success_hits.clear();
     }
 
     pub fn workspace(&mut self) -> &mut dyn WorkspaceProvider {
@@ -108,12 +123,20 @@ impl ade_core::runtime::fleet::SupervisedTask for Supervisor {
         self.task.failure_limit
     }
 
+    fn max_runtime_secs(&self) -> Option<u64> {
+        self.task.max_runtime_secs
+    }
+
     fn tick(&mut self, store: &mut Store) {
         Supervisor::tick(self, store);
     }
 
     fn drain_errors(&mut self) -> Vec<TaskId> {
         Supervisor::drain_errors(self)
+    }
+
+    fn drain_successes(&mut self) -> Vec<TaskId> {
+        Supervisor::drain_successes(self)
     }
 
     fn retry_reset(&mut self) {
@@ -440,5 +463,70 @@ mod tests {
                 summary: None,
             })
         );
+    }
+
+    #[test]
+    fn idle_reports_success_hits_but_never_unblocks() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use ade_workspace::TaskStatus;
+
+        // Idle on a healthy task records one success hit.
+        let (mut sup, id) = supervisor_with_prompt("hello");
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        assert!(sup.drain_successes().is_empty());
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(id, AgentStatus::Idle));
+        // Swap backend via a fresh supervisor on the same task id.
+        let task = sup.task().clone();
+        let mut sup2 = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        sup2.tick(&mut store);
+        assert_eq!(sup2.drain_successes(), vec![id]);
+        assert_eq!(sup2.task().status, TaskStatus::Active);
+        // Idle on a Blocked task reports nothing (no silent un-block).
+        let mut btask = Task::new("feat-b", "mock").with_failure_limit(1);
+        btask.note_failure();
+        assert_eq!(btask.status, TaskStatus::Blocked);
+        let mut bbackend = MockAgent::new();
+        bbackend.emit(AgentEvent::Status(btask.id, AgentStatus::Idle));
+        let mut bsup = Supervisor::new(btask, Box::new(bbackend), Box::new(MockWorkspace::new()));
+        bsup.tick(&mut store);
+        assert!(bsup.drain_successes().is_empty());
+        assert_eq!(bsup.task().status, TaskStatus::Blocked);
+    }
+
+    #[test]
+    fn inbox_chain_error_success_error_stays_quiet() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use crate::sweeper::FleetSweeper;
+        use ade_core::runtime::FleetInbox;
+        use ade_workspace::Task;
+
+        // Limit 2: error, success, error must not block at the sweep.
+        let task = Task::new("wt-mix", "mock");
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "x".into() },
+        ));
+        backend.emit(AgentEvent::Status(id, AgentStatus::Idle));
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "y".into() },
+        ));
+        let inbox = FleetInbox::new();
+        inbox.register_sweeper(Box::new(FleetSweeper::new()));
+        inbox.register_task(Box::new(Supervisor::new(
+            task,
+            Box::new(backend),
+            Box::new(MockWorkspace::new()),
+        )));
+        inbox.bind_new("wt-mix", "s1");
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        inbox.poll_fleet(&mut store, 30);
+        assert!(store.errors.is_empty(), "unexpected: {:?}", store.errors);
+        assert!(!store.is_blocked_slug("wt-mix"));
     }
 }

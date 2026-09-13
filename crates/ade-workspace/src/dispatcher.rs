@@ -19,7 +19,7 @@ pub const DISPATCH_INTERVAL_SECS: u64 = 60;
 pub enum DispatcherAction {
     /// Overdue or stale: take the task back for reassignment/retry.
     Reclaim(TaskId),
-    /// Errored twice in a row: stop auto-retry, needs a human look.
+    /// Retry budget spent: stop auto-retry, needs a human look.
     Blocked(TaskId),
 }
 
@@ -69,17 +69,21 @@ impl Dispatcher {
         self.track_with_limit(id, None, limit);
     }
 
+    /// Track with budget + deadline (fix-2 seam). Re-tracking an already
+    /// tracked task keeps its error count — only fresh tracks reset it
+    /// (retry goes through untrack + re-track explicitly).
+    pub fn track_full(&mut self, id: TaskId, limit: u8, max_runtime_secs: Option<u64>) {
+        self.track_with_limit(id, max_runtime_secs, limit);
+    }
+
     fn track_with_limit(&mut self, id: TaskId, max_runtime_secs: Option<u64>, limit: u8) {
         let now = Instant::now();
-        self.tasks.insert(
-            id,
-            TaskMeta {
-                deadline: max_runtime_secs.map(|s| now + Duration::from_secs(s)),
-                errors: 0,
-                limit: limit.max(1),
-                last_beat: now,
-            },
-        );
+        self.tasks.entry(id).or_insert(TaskMeta {
+            deadline: max_runtime_secs.map(|s| now + Duration::from_secs(s)),
+            errors: 0,
+            limit: limit.max(1),
+            last_beat: now,
+        });
     }
 
     pub fn untrack(&mut self, task: &TaskId) {
@@ -95,6 +99,15 @@ impl Dispatcher {
     pub fn note_error(&mut self, task: &TaskId) {
         if let Some(m) = self.tasks.get_mut(task) {
             m.errors = m.errors.saturating_add(1);
+        }
+    }
+
+    /// Record a success (fix-2): the error streak resets so an
+    /// error→success→error cycle under budget never blocks.
+    pub fn note_success(&mut self, task: &TaskId) {
+        if let Some(m) = self.tasks.get_mut(task) {
+            m.errors = 0;
+            m.last_beat = Instant::now();
         }
     }
 
@@ -212,5 +225,45 @@ mod tests {
         d.track_id_with_limit(id, 1);
         d.note_error(&id);
         assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(id)]);
+    }
+
+    #[test]
+    fn success_resets_error_streak() {
+        let mut d = Dispatcher::new();
+        let t = Task::new("a", "mock"); // limit 2
+        d.track(&t);
+        d.note_error(&t.id);
+        d.note_success(&t.id);
+        d.note_error(&t.id);
+        assert!(
+            d.sweep().is_empty(),
+            "error→success→error stays under budget"
+        );
+        d.note_error(&t.id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(t.id)]);
+    }
+
+    #[test]
+    fn retrack_keeps_errors_until_untrack() {
+        let mut d = Dispatcher::new();
+        let t = Task::new("a", "mock");
+        d.track(&t);
+        d.note_error(&t.id);
+        d.track(&t); // second bind must not wipe the count
+        d.note_error(&t.id);
+        assert_eq!(d.sweep(), vec![DispatcherAction::Blocked(t.id)]);
+        // Retry path (untrack + re-track) starts fresh.
+        d.untrack(&t.id);
+        d.track(&t);
+        assert!(d.sweep().is_empty());
+    }
+
+    #[test]
+    fn full_track_carries_deadline() {
+        let mut d = Dispatcher::new();
+        let id = TaskId::new();
+        d.track_full(id, 2, Some(0));
+        let now = Instant::now() + Duration::from_secs(1);
+        assert_eq!(d.sweep_at(now), vec![DispatcherAction::Reclaim(id)]);
     }
 }

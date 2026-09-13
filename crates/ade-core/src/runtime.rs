@@ -54,8 +54,10 @@ impl RuntimeHandle {
 
     /// Register a supervised task (M6 driver: Open-Workspace flow).
     /// Survives server reconnects; drained every poll tick (hook A).
-    pub fn register_task(&self, task: Box<dyn fleet::SupervisedTask>) {
-        self.inbox.register_task(task);
+    /// Returns false when a live task already owns the slug (M7d 1:1) —
+    /// the task is not registered in that case.
+    pub fn register_task(&self, task: Box<dyn fleet::SupervisedTask>) -> bool {
+        self.inbox.register_task(task)
     }
 
     /// Install (or replace) the kanban-lite sweeper.

@@ -95,7 +95,11 @@ fn open_registered_task(
     // Seed the first prompt where the backend accepts session I/O;
     // read-side adapters pick the prompt up from the session instead.
     let _ = backend.spawn(id, prompt);
-    inbox.register_task(Box::new(Supervisor::new(task, backend, ws)));
+    // Belt and suspenders with the pre-check above: a lost race still
+    // fails instead of registering a ghost task.
+    if !inbox.register_task(Box::new(Supervisor::new(task, backend, ws))) {
+        anyhow::bail!("task already open (lost registration race)");
+    }
     Ok(id)
 }
 
