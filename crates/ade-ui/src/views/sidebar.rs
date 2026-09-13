@@ -1,11 +1,28 @@
 use ade_core::{Command, TaskId, WorktreeStatus};
 use gpui::*;
 use gpui_component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
+    ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, input::Input, label::Label,
 };
 
-use super::theme::{SIDEBAR_W, bad_color, ok_color, truncate, warn_color};
+use super::theme::{
+    ROW_H, SIDEBAR_W, TEXT_META, TEXT_SECONDARY, bad_color, empty_state, muted_color, ok_color,
+    status_glyph, truncate, warn_color,
+};
 use crate::app::AdeApp;
+
+/// Fleet sort rank (pure: unit-tested). Blocked first, then needs-you,
+/// then working; idle/done sink to the bottom, alphabetical inside a rank.
+pub(crate) fn fleet_rank(blocked: bool, status: WorktreeStatus) -> u8 {
+    if blocked {
+        0
+    } else {
+        match status {
+            WorktreeStatus::NeedsYou => 1,
+            WorktreeStatus::Working => 2,
+            WorktreeStatus::Creating | WorktreeStatus::Done => 3,
+        }
+    }
+}
 
 /// Dot for a worktree row (pure: unit-tested). Blocked (retry budget
 /// spent) overrides every session-derived state with red.
@@ -71,7 +88,7 @@ impl AdeApp {
         });
         div()
             .id(row_id)
-            .h(px(30.))
+            .h(px(ROW_H))
             .w_full()
             .flex()
             .items_center()
@@ -91,17 +108,15 @@ impl AdeApp {
                 title: String::new(),
             });
         });
-        // "+ wt" uses the composer text as slug (handy: type task, click +wt),
-        // else auto-names task-N.
-        let new_worktree = cx.listener(|this, _: &ClickEvent, window, cx| {
-            let typed = this.input.read(cx).value().to_string();
-            let slug = if typed.trim().is_empty() {
-                format!("task-{}", this.store.worktrees.len() + 1)
-            } else {
-                typed
-            };
-            this.rt.send(Command::CreateWorktree { slug });
-            this.input.update(cx, |st, cx| st.set_value("", window, cx));
+        // "+ wt" opens the Fleet dialog (UX2) — the composer text is
+        // never stolen for a slug anymore.
+        let open_wt_dialog = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.show_wt_dialog = true;
+            cx.notify();
+        });
+        let toggle_attention = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.fleet_attention_only = !this.fleet_attention_only;
+            cx.notify();
         });
 
         let mut list = div()
@@ -112,13 +127,77 @@ impl AdeApp {
             .flex()
             .flex_col();
 
-        // Worktree groups, each with its sessions.
+        // New-worktree dialog: slug input + Create/Cancel (Enter submits).
+        if self.show_wt_dialog {
+            let create = cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.create_worktree_from_dialog(window, cx);
+            });
+            let cancel = cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.show_wt_dialog = false;
+                cx.notify();
+            });
+            list = list.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .m_2()
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        Label::new("New worktree — 1 task = 1 worktree")
+                            .text_size(px(TEXT_META))
+                            .text_color(muted_color()),
+                    )
+                    .child(Input::new(&self.fleet_input))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_1()
+                            .child(
+                                Button::new("wt-create")
+                                    .label("Create")
+                                    .small()
+                                    .on_click(create),
+                            )
+                            .child(
+                                Button::new("wt-cancel")
+                                    .label("Cancel")
+                                    .small()
+                                    .on_click(cancel),
+                            ),
+                    ),
+            );
+        }
+
+        // Worktree groups, attention-first (blocked → needs-you →
+        // working), alphabetical inside a rank.
         let mut slugs: Vec<_> = self.store.worktrees.keys().cloned().collect();
-        slugs.sort();
+        slugs.sort_by_key(|s| {
+            (
+                fleet_rank(self.store.is_blocked_slug(s), self.store.worktree_status(s)),
+                s.clone(),
+            )
+        });
+        if self.fleet_attention_only {
+            slugs.retain(|s| {
+                fleet_rank(self.store.is_blocked_slug(s), self.store.worktree_status(s)) < 3
+            });
+        }
+        let shown_slugs = slugs.len();
         for slug in slugs {
             let active = self.store.active_worktree.as_deref() == Some(slug.as_str());
-            let dot = self.worktree_dot(&slug);
+            let status = self.store.worktree_status(&slug);
             let blocked = self.store.is_blocked_slug(&slug);
+            let glyph = status_glyph(
+                status == WorktreeStatus::Working,
+                status == WorktreeStatus::NeedsYou,
+                blocked,
+                status == WorktreeStatus::Done,
+            );
+            let color = self.worktree_dot(&slug).unwrap_or_else(muted_color);
             let select_slug = slug.clone();
             let select = cx.listener(move |this, _: &ClickEvent, _, _| {
                 this.rt.send(Command::SelectWorktree {
@@ -145,64 +224,61 @@ impl AdeApp {
             } else {
                 Hsla::transparent_black()
             };
-            list =
-                list.child(
-                    div()
-                        .id(SharedString::from(format!("wt-row-{slug}")))
-                        .h(px(30.))
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .px_2()
-                        .bg(bg)
-                        .cursor_pointer()
-                        .on_click(select)
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .children(dot.map(|c| {
-                                    Icon::new(IconName::CircleCheck).xsmall().text_color(c)
-                                }))
-                                .child(Label::new(format!("⑂ {slug}")).text_size(px(12.)))
-                                .children(self.vm_badge(&slug)),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .children(blocked.then(|| {
-                                    let retry_slug = slug.clone();
-                                    let retry = cx.listener(move |this, _: &ClickEvent, _, _| {
-                                        this.rt.send(Command::RetryTask {
-                                            slug: retry_slug.clone(),
-                                        });
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("wt-row-{slug}")))
+                    .h(px(ROW_H))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_2()
+                    .bg(bg)
+                    .cursor_pointer()
+                    .on_click(select)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(Label::new(glyph).text_color(color))
+                            .child(Label::new(format!("⑂ {slug}")).text_size(px(TEXT_SECONDARY)))
+                            .children(self.vm_badge(&slug)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .children(blocked.then(|| {
+                                let retry_slug = slug.clone();
+                                let retry = cx.listener(move |this, _: &ClickEvent, _, _| {
+                                    this.rt.send(Command::RetryTask {
+                                        slug: retry_slug.clone(),
                                     });
-                                    Button::new(SharedString::from(format!("wt-retry-{slug}")))
-                                        .label("↻")
-                                        .xsmall()
-                                        .compact()
-                                        .on_click(retry)
-                                }))
-                                .child(
-                                    Button::new(SharedString::from(format!("wt-open-{slug}")))
-                                        .label("⏻")
-                                        .xsmall()
-                                        .compact()
-                                        .on_click(open),
-                                )
-                                .child(
-                                    Button::new(SharedString::from(format!("wt-del-{slug}")))
-                                        .label("×")
-                                        .xsmall()
-                                        .compact()
-                                        .on_click(remove),
-                                ),
-                        ),
-                );
+                                });
+                                Button::new(SharedString::from(format!("wt-retry-{slug}")))
+                                    .label("↻")
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(retry)
+                            }))
+                            .child(
+                                Button::new(SharedString::from(format!("wt-open-{slug}")))
+                                    .label("⏻")
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(open),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("wt-del-{slug}")))
+                                    .label("×")
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(remove),
+                            ),
+                    ),
+            );
             for sid in self.store.sessions_in_scope(&slug) {
                 let title = self
                     .store
@@ -215,6 +291,7 @@ impl AdeApp {
         }
 
         // Root sessions (no worktree).
+        let mut root_count = 0;
         for sid in self.store.sessions_in_scope("") {
             let title = self
                 .store
@@ -223,7 +300,25 @@ impl AdeApp {
                 .map(|s| truncate(&s.title, 24))
                 .unwrap_or_else(|| "(gone)".into());
             list = list.child(self.session_row(&sid, title, false, cx));
+            root_count += 1;
         }
+        if shown_slugs == 0 && root_count == 0 && !self.show_wt_dialog {
+            list = list.child(empty_state(
+                "⑂",
+                "No worktrees yet",
+                if self.fleet_attention_only {
+                    "Nothing needs you — toggle ! to see all"
+                } else {
+                    "Press + wt to open your first task"
+                },
+            ));
+        }
+
+        let filter_label = if self.fleet_attention_only {
+            "!"
+        } else {
+            "all"
+        };
 
         div()
             .w(px(SIDEBAR_W))
@@ -245,11 +340,18 @@ impl AdeApp {
                             .flex()
                             .gap_1()
                             .child(
+                                Button::new("fleet-filter")
+                                    .label(filter_label)
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(toggle_attention),
+                            )
+                            .child(
                                 Button::new("wt-new")
                                     .label("+ wt")
                                     .xsmall()
                                     .compact()
-                                    .on_click(new_worktree),
+                                    .on_click(open_wt_dialog),
                             )
                             .child(
                                 Button::new("session-new")
@@ -301,8 +403,28 @@ mod tests {
     // `use gpui::*` glob would shadow builtin `#[test]`.
     use ade_core::WorktreeStatus;
 
-    use crate::views::sidebar::{blocked_task_in, fleet_dot};
+    use crate::views::sidebar::{blocked_task_in, fleet_dot, fleet_rank};
     use crate::views::theme::{bad_color, ok_color, warn_color};
+
+    #[test]
+    fn attention_sorts_before_idle() {
+        // Blocked > needs-you > working > idle/done.
+        assert!(
+            fleet_rank(true, WorktreeStatus::Done) < fleet_rank(false, WorktreeStatus::NeedsYou)
+        );
+        assert!(
+            fleet_rank(false, WorktreeStatus::NeedsYou)
+                < fleet_rank(false, WorktreeStatus::Working)
+        );
+        assert!(
+            fleet_rank(false, WorktreeStatus::Working)
+                < fleet_rank(false, WorktreeStatus::Creating)
+        );
+        assert_eq!(
+            fleet_rank(false, WorktreeStatus::Creating),
+            fleet_rank(false, WorktreeStatus::Done)
+        );
+    }
 
     #[test]
     fn blocked_overrides_every_dot() {

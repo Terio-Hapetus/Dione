@@ -68,6 +68,12 @@ pub struct AdeApp {
     pub(crate) term_input: Entity<InputState>,
     /// Terminal search filter.
     pub(crate) term_query: Entity<InputState>,
+    /// New-worktree dialog (UX2): open flag + slug input. Replaces the
+    /// old "+ wt steals composer text" behavior.
+    pub(crate) show_wt_dialog: bool,
+    pub(crate) fleet_input: Entity<InputState>,
+    /// Attention filter: only blocked / needs-you / working worktrees.
+    pub(crate) fleet_attention_only: bool,
     /// VM manager background thread (W2). UI sends Ensure/Stop, drains
     /// reports in the snapshot loop — never blocks.
     pub(crate) vm: VmThread,
@@ -130,6 +136,17 @@ impl AdeApp {
         cx.subscribe_in(&term_input, window, |this, _, ev, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
                 this.send_terminal_input(window, cx);
+            }
+        })
+        .detach();
+        let fleet_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("slug… (Enter to create)")
+                .auto_grow(1, 1)
+        });
+        cx.subscribe_in(&fleet_input, window, |this, _, ev, window, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. }) {
+                this.create_worktree_from_dialog(window, cx);
             }
         })
         .detach();
@@ -212,9 +229,35 @@ impl AdeApp {
             polls: 0,
             term: None,
             show_terminal: false,
+            show_wt_dialog: false,
+            fleet_input,
+            fleet_attention_only: false,
             pending_shell: None,
             term_pending: false,
         }
+    }
+
+    /// Create a worktree from the Fleet dialog (UX2). Empty input →
+    /// auto-name `task-N`; dialog always closes on submit.
+    pub(crate) fn create_worktree_from_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.show_wt_dialog {
+            return;
+        }
+        let typed = self.fleet_input.read(cx).value().to_string();
+        let slug = if typed.trim().is_empty() {
+            format!("task-{}", self.store.worktrees.len() + 1)
+        } else {
+            typed.trim().to_string()
+        };
+        self.rt.send(Command::CreateWorktree { slug });
+        self.fleet_input
+            .update(cx, |st, cx| st.set_value("", window, cx));
+        self.show_wt_dialog = false;
+        cx.notify();
     }
 
     /// Re-probe agent binaries (slow-refresh loop + registry edits).
