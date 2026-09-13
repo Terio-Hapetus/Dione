@@ -23,7 +23,6 @@ use crate::vm_thread::VmThread;
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum RightTab {
     Context,
-    Inspector,
     Diff,
     File,
 }

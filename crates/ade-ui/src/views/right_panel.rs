@@ -2,14 +2,13 @@ use ade_core::{Command, Store};
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{REVIEW_W, fmt_tok, muted_color, ok_color, truncate, v_center};
+use super::theme::{REVIEW_W, fmt_tok, muted_color, ok_color, truncate};
 use crate::app::{AdeApp, RightTab};
 
 impl AdeApp {
     pub(crate) fn render_right_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs = [
             (RightTab::Context, "context"),
-            (RightTab::Inspector, "inspector"),
             (RightTab::Diff, "diff"),
             (RightTab::File, "file"),
         ];
@@ -47,9 +46,6 @@ impl AdeApp {
 
         let body: AnyElement = match self.right_tab {
             RightTab::Context => context_view(&self.store, cx),
-            // Refactor: Inspector no longer depends on dead `selected_part`
-            // state (nothing ever set it). Show guidance instead.
-            RightTab::Inspector => inspector_view(),
             RightTab::Diff => self.render_diff(cx),
             RightTab::File => self.render_file(cx),
         };
@@ -127,10 +123,4 @@ pub(crate) fn context_view(store: &Store, cx: &mut Context<AdeApp>) -> AnyElemen
         );
     }
     col.into_any_element()
-}
-
-/// Inspector is a placeholder until part-selection is wired: previously it
-/// read a `selected_part` field that nothing ever wrote.
-pub(crate) fn inspector_view() -> AnyElement {
-    v_center("Select a timeline part to inspect (not wired yet).")
 }

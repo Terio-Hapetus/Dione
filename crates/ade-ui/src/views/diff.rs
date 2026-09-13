@@ -106,7 +106,9 @@ impl AdeApp {
             // Track which @@ hunk each rendered row belongs to so @@ rows
             // get a cherry-pick toggle (M8a). Preamble rows get None.
             let mut hunk_idx: Option<usize> = None;
-            for (li, pl) in parse_patch_lines(&patch).iter().take(400).enumerate() {
+            let parsed = parse_patch_lines(&patch);
+            let total = parsed.len();
+            for (li, pl) in parsed.iter().take(400).enumerate() {
                 let color = if pl.text.starts_with('+') && !pl.text.starts_with("+++") {
                     ok_color()
                 } else if pl.text.starts_with('-') && !pl.text.starts_with("---") {
@@ -119,7 +121,19 @@ impl AdeApp {
                 if pl.text.starts_with("@@") {
                     hunk_idx = Some(hunk_idx.map_or(0, |i| i + 1));
                 }
-                let row = div().child(Label::new(pl.text.clone()).text_color(color));
+                // Gutter: new-file line number when the parser mapped one
+                // (UX5) — makes notes like "L12" findable in the patch.
+                let row = match pl.line {
+                    Some(n) => div().flex().gap_2().child(
+                        div().w(px(36.)).flex_none().child(
+                            Label::new(format!("{n}"))
+                                .text_size(px(11.))
+                                .text_color(muted_color()),
+                        ),
+                    ),
+                    None => div().flex().gap_2(),
+                }
+                .child(Label::new(pl.text.clone()).text_color(color));
                 // @@ rows carry a pick toggle; +/- rows keep annotate clicks.
                 if let Some(hi) = hunk_idx.filter(|_| pl.text.starts_with("@@")) {
                     let key = (sid.to_string(), name.clone(), hi);
@@ -178,6 +192,16 @@ impl AdeApp {
                         lines = lines.child(row);
                     }
                 }
+            }
+            if total > 400 {
+                lines = lines.child(
+                    Label::new(format!(
+                        "… +{} more lines — open the file in the File tab",
+                        total - 400
+                    ))
+                    .text_size(px(11.))
+                    .text_color(muted_color()),
+                );
             }
             block = block.child(lines);
             // Cherry-pick (M8a): apply picked hunks of this file to the
@@ -324,7 +348,9 @@ impl AdeApp {
             } else {
                 format!("⑂ {scope}")
             };
-            let mut head_row = div().flex().items_center().justify_between().child(
+            // Scope header: title row + its own actions row (UX5) so
+            // Merge/Hand off/Branch never squeeze the session rows.
+            let mut section = div().flex().flex_col().gap_1().child(
                 Label::new(header)
                     .text_size(px(12.))
                     .text_color(warn_color()),
@@ -358,7 +384,10 @@ impl AdeApp {
                     });
                     app.input.update(cx, |st, cx| st.set_value("", window, cx));
                 });
-                head_row = head_row.child(
+                // Merge winner is the primary action; Hand off / Branch
+                // here are secondary (outline) — same hierarchy as the
+                // permission buttons (UX7 will finish that side).
+                section = section.child(
                     div()
                         .flex()
                         .items_center()
@@ -375,6 +404,7 @@ impl AdeApp {
                                 .label("Hand off")
                                 .xsmall()
                                 .compact()
+                                .outline()
                                 .on_click(handoff),
                         )
                         .child(
@@ -382,11 +412,11 @@ impl AdeApp {
                                 .label("Branch here")
                                 .xsmall()
                                 .compact()
+                                .outline()
                                 .on_click(branch),
                         ),
                 );
             }
-            let mut section = div().flex().flex_col().gap_1().child(head_row);
             // Sessions in review order: needs-you first, then longest
             // waiting (M8b). Replaces the old lexicographic sid sort.
             let sids = self.store.sort_review_sids(
@@ -404,9 +434,14 @@ impl AdeApp {
                     .filter(|n| n.session_id == sid)
                     .cloned()
                     .collect();
-                let short: String = sid.chars().take(12).collect();
+                let short: String = sid.chars().take(8).collect();
+                let session_label = if notes.is_empty() {
+                    format!("session {short}")
+                } else {
+                    format!("session {short} · {} note(s)", notes.len())
+                };
                 let mut head = div().flex().items_center().justify_between().child(
-                    Label::new(short.to_string())
+                    Label::new(session_label)
                         .text_size(px(11.))
                         .text_color(muted_color()),
                 );
