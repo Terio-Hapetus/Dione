@@ -200,8 +200,10 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
      badge glyph, active outline, scroll-ngang); Xvfb sạch
    - DONE UX4 (`f6c49db`): composer single-mode (Send/Send all/Abort cố
      định) + note bar riêng (Attach + ×, hết swap nút); Xvfb sạch
-   - Tiếp: UX5 review → UX6 palette+keys → UX7 permission/states →
-     UX6 palette+keys → UX7 permission/states → UX8 polish
+   - DONE UX5 (`c149680`): review gom nút 2 hàng (Merge primary, còn
+     lại outline) + gutter số dòng + notice cắt ngắn + xóa Inspector;
+     Xvfb sạch
+   - Tiếp: UX6 palette+keys → UX7 permission/states → UX8 polish
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
