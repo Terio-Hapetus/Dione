@@ -21,10 +21,10 @@ M8c2 DONE (thread replies: Reply + render + format).
 M8d DONE (branch paths: Branch here + Hand off, giữ worktree).
 M8e DONE (viewer text-first, TS-ready, tab File riêng).
 M8 CLOSED (review++ trên branch feat/m7-fleet-reliability).
-PR #1 OPEN: https://github.com/Terio-Hapetus/Dione/pull/1 (M7+M8, 29 commits).
+PR #1 MERGED (`eeda103`): M7+M8 vào main; nhánh feat đã xóa (local + remote).
 Remote: Terio-Hapetus/Dione (đã chuyển từ hquoclong/Dione).
 Lưu ý env: mọi lệnh git/gh cần `env -u GH_TOKEN` (token cũ invalid đè credential).
-Next: review/merge PR → M9 (Cost/BYOK) hoặc live KVM.
+Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
 
 ## Last commit (đã verify)
 
