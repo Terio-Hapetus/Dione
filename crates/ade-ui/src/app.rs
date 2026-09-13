@@ -389,6 +389,7 @@ impl Render for AdeApp {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
+                            .child(self.render_worktree_tabs(cx))
                             .child(self.render_vm_banner())
                             .child(self.render_error_strip(cx))
                             .child(if self.show_terminal {

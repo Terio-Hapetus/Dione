@@ -6,6 +6,7 @@ pub mod permission;
 pub mod right_panel;
 pub mod shell;
 pub mod sidebar;
+pub mod tabs;
 pub mod terminal;
 pub mod theme;
 pub mod top_bar;
