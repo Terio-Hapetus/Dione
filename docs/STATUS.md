@@ -196,7 +196,9 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
    - DONE UX2 (`5e61857`): Fleet attention-first (sort blocked→
      needs-you→working, filter all/!), row 32px glyph chữ, dialog
      +wt riêng (hết cướp text composer), empty-state; Xvfb sạch
-   - Tiếp: UX3 worktree tabs → UX4 composer single-mode → UX5 review →
+   - DONE UX3 (`d16c65e`): worktree tab bar trên center (main + slugs,
+     badge glyph, active outline, scroll-ngang); Xvfb sạch
+   - Tiếp: UX4 composer single-mode → UX5 review → UX6 palette+keys →
      UX6 palette+keys → UX7 permission/states → UX8 polish
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
