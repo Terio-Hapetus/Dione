@@ -1,4 +1,4 @@
-use ade_core::{Command, DiffNote, parse_patch_lines, worktree::split_hunks};
+use ade_core::{Command, DiffNote, parse_patch_lines, split_files, worktree::split_hunks};
 use gpui::*;
 use gpui_component::{Sizable as _, button::Button, label::Label};
 
@@ -29,9 +29,9 @@ impl FileDiffRow {
 }
 
 /// Rows for one diff value (pure: unit-tested). Legacy wire shape is a
-/// `FileDiffRow` array; git-shape (`GitDiff::to_json`) carries a single
-/// `raw` patch — surfaced as one block so annotate + cherry-pick work
-/// on it. Anything else renders as no rows.
+/// `FileDiffRow` array; git-shape (`GitDiff::to_json`) carries a combined
+/// `raw` patch — split per file so annotate + cherry-pick + viewer act
+/// on single files. Anything else renders as no rows.
 pub(crate) fn file_rows(value: &serde_json::Value) -> Vec<FileDiffRow> {
     if let Ok(rows) = serde_json::from_value::<Vec<FileDiffRow>>(value.clone())
         && !rows.is_empty()
@@ -42,18 +42,23 @@ pub(crate) fn file_rows(value: &serde_json::Value) -> Vec<FileDiffRow> {
     if raw.trim().is_empty() {
         return Vec::new();
     }
-    let file = value
-        .get("files")
-        .and_then(|f| f.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+    let sections = split_files(raw);
+    if sections.is_empty() {
+        // No `diff --git` headers (bare hunks): one block as before.
+        return vec![FileDiffRow::git_block(
+            "(working tree)".to_string(),
+            raw.to_string(),
+        )];
+    }
+    sections
+        .into_iter()
+        .map(|(file, section)| {
+            FileDiffRow::git_block(
+                file.unwrap_or_else(|| "(working tree)".to_string()),
+                section,
+            )
         })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "(working tree)".to_string());
-    vec![FileDiffRow::git_block(file, raw.to_string())]
+        .collect()
 }
 
 impl AdeApp {
@@ -182,7 +187,6 @@ impl AdeApp {
                 .collect();
             if !picked.is_empty() {
                 let n = picked.len();
-                let apply_sid = sid.to_string();
                 let apply_file = name.clone();
                 let apply_patch = patch.clone();
                 let apply = cx.listener(move |app, _: &ClickEvent, _, cx| {
@@ -191,12 +195,15 @@ impl AdeApp {
                         .iter()
                         .filter_map(|i| all.get(*i).cloned())
                         .collect::<Vec<_>>();
-                    app.hunk_picks
-                        .retain(|(s, f, _)| !(s == &apply_sid && *f == apply_file));
-                    app.rt.send(Command::ApplyHunks {
-                        file: apply_file.clone(),
-                        hunks,
-                    });
+                    // Stale picks (diff refreshed shorter) send nothing
+                    // rather than a misleading "applied 0". Picks are kept
+                    // on failure so the user can retry after resolving.
+                    if hunks.len() == picked.len() && !hunks.is_empty() {
+                        app.rt.send(Command::ApplyHunks {
+                            file: apply_file.clone(),
+                            hunks,
+                        });
+                    }
                     cx.notify();
                 });
                 block = block.child(
@@ -442,6 +449,8 @@ mod tests {
     // `use gpui::*` glob would shadow builtin `#[test]`.
     use serde_json::json;
 
+    use ade_core::split_files;
+
     use crate::views::diff::file_rows;
 
     #[test]
@@ -458,15 +467,37 @@ mod tests {
     }
 
     #[test]
-    fn git_shape_becomes_one_block() {
-        let v = json!({"source": "git", "files": ["a.rs", "b.rs"], "raw": "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-x\n+y"});
+    fn git_shape_splits_one_block_per_file() {
+        let v = serde_json::json!({"source": "git", "files": ["a.rs", "b.rs"], "raw": "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-x\n+y\ndiff --git a/b.rs b/b.rs\n@@ -2 +2 @@\n-p\n+q"});
         let rows = file_rows(&v);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].file.as_deref(), Some("a.rs, b.rs"));
-        assert!(rows[0].patch.as_deref().is_some_and(|p| p.contains("@@")));
-        // Empty file list falls back to a working-tree label.
-        let v2 = json!({"source": "git", "files": [], "raw": "@@ -1 +1 @@\n+z"});
-        assert_eq!(file_rows(&v2)[0].file.as_deref(), Some("(working tree)"));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].file.as_deref(), Some("a.rs"));
+        assert!(
+            rows[0]
+                .patch
+                .as_deref()
+                .is_some_and(|p| p.contains("+y") && !p.contains("+q"))
+        );
+        assert_eq!(rows[1].file.as_deref(), Some("b.rs"));
+        assert!(rows[1].patch.as_deref().is_some_and(|p| p.contains("+q")));
+        // Bare hunks without headers stay one working-tree block.
+        let v2 = serde_json::json!({"source": "git", "files": [], "raw": "@@ -1 +1 @@\n+z"});
+        let rows2 = file_rows(&v2);
+        assert_eq!(rows2.len(), 1);
+        assert_eq!(rows2[0].file.as_deref(), Some("(working tree)"));
+    }
+
+    #[test]
+    fn split_files_cuts_at_git_headers() {
+        let raw = "diff --git a/a.rs b/a.rs\n@@ -1 +1 @@\n-x\n+y\ndiff --git a/b.rs b/b.rs\nBinary files a/b.rs and b/b.rs differ\n";
+        let parts = split_files(raw);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].0.as_deref(), Some("a.rs"));
+        assert!(parts[0].1.contains("@@"));
+        assert_eq!(parts[1].0.as_deref(), Some("b.rs"));
+        assert!(parts[1].1.contains("Binary"));
+        assert!(split_files("@@ -1 +1 @@\n+z").is_empty());
+        assert!(split_files("").is_empty());
     }
 
     #[test]

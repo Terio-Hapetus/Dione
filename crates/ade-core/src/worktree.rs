@@ -308,7 +308,15 @@ pub async fn apply_hunks(path: &Path, file: &str, hunks: &[Hunk]) -> Result<(), 
     if hunks.is_empty() {
         return Ok(());
     }
-    if file.is_empty() || file.contains('\n') {
+    // Fail early on anything that is not a plain checkout-relative path:
+    // UI sentinel labels, absolute paths, and parent escapes must never
+    // reach `git apply` (git would refuse `..` anyway — this is clearer).
+    let rel = Path::new(file);
+    let escapes = rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| c == std::path::Component::ParentDir);
+    if file.is_empty() || file.contains(['\n', ',']) || escapes {
         return Err(WorktreeError::Git(format!("bad file name: {file:?}")));
     }
     let mut patch = format!("diff --git a/{file} b/{file}\n--- a/{file}\n+++ b/{file}\n");

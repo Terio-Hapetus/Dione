@@ -106,6 +106,28 @@ pub fn resolve_range(
     }
 }
 
+/// Split a combined unified diff into `(file, section)` pairs at
+/// `diff --git` boundaries (pure). Preamble-less hunks yield no pairs;
+/// callers surface those as one working-tree block instead.
+pub fn split_files(raw: &str) -> Vec<(Option<String>, String)> {
+    let mut out: Vec<(Option<String>, String)> = Vec::new();
+    for line in raw.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            out.push((file_from_git_header(rest), format!("{line}\n")));
+        } else if let Some((_, section)) = out.last_mut() {
+            section.push_str(line);
+            section.push('\n');
+        }
+    }
+    out
+}
+
+/// `a/foo b/foo` → `foo` (loose: strips quotes, takes the `b/` side).
+fn file_from_git_header(rest: &str) -> Option<String> {
+    let name = rest.rsplit(" b/").next()?.trim().trim_matches('"');
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 /// One rendered diff line with its new/old-file number, if countable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatchLine {

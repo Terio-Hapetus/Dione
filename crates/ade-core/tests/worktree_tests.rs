@@ -318,6 +318,21 @@ async fn cherry_pick_rejects_empty_selection_and_bad_input() {
         lines: vec![],
     };
     assert!(worktree::apply_hunks(&repo, "f.txt", &[bad]).await.is_err());
+    // Traversal, absolute, multi-file labels, and sentinels never run git.
+    for evil in [
+        "../evil.txt",
+        "/abs.txt",
+        "a.rs, b.rs",
+        "(working tree)",
+        "(unknown)",
+    ] {
+        assert!(
+            worktree::apply_hunks(&repo, evil, &[h.clone()])
+                .await
+                .is_err(),
+            "{evil} must be rejected"
+        );
+    }
     cleanup(&repo);
 }
 
@@ -385,5 +400,44 @@ async fn hand_off_merges_but_keeps_worktree() {
     assert!(git_out(&repo, &["branch", "--list", "ade/feat-ho"]).contains("ade/feat-ho"));
 
     worktree::remove(&repo, "feat-ho").await.unwrap();
+    cleanup(&repo);
+}
+
+#[tokio::test]
+async fn cherry_pick_multi_file_raw_applies_per_file() {
+    use ade_core::split_files;
+
+    // Two files changed at once: the combined raw must split per file,
+    // and each file's hunks must apply to that file alone.
+    let repo = init_repo();
+    for (name, body) in [("a.txt", "A1\nA2\nA3\n"), ("b.txt", "B1\nB2\nB3\n")] {
+        std::fs::write(repo.join(name), body).unwrap();
+    }
+    sh(&repo, &["add", "."]);
+    sh(&repo, &["commit", "-qm", "two files"]);
+    std::fs::write(repo.join("a.txt"), "A1\nA2*\nA3\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "B1\nB2*\nB3\n").unwrap();
+    let raw = git_out(&repo, &["diff", "--", "a.txt", "b.txt"]);
+
+    let parts = split_files(&raw);
+    assert_eq!(parts.len(), 2);
+    for (file, section) in &parts {
+        let f = file.as_deref().unwrap();
+        let hunks = worktree::split_hunks(section);
+        assert_eq!(hunks.len(), 1, "one hunk for {f}");
+        // Restore pristine, apply only this file's hunk to this file.
+        sh(&repo, &["checkout", "--", f]);
+        worktree::apply_hunks(&repo, f, &hunks).await.unwrap();
+    }
+    assert!(
+        std::fs::read_to_string(repo.join("a.txt"))
+            .unwrap()
+            .contains("A2*\n")
+    );
+    assert!(
+        std::fs::read_to_string(repo.join("b.txt"))
+            .unwrap()
+            .contains("B2*\n")
+    );
     cleanup(&repo);
 }

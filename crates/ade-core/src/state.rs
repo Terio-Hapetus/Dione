@@ -12,5 +12,5 @@ pub use events::{apply_event, event_session_id, message_id};
 pub use store::Store;
 pub use types::{
     ConnState, DiffNote, MessageEntry, PatchLine, PendingPermission, ProviderInfo, SelectedModel,
-    Totals, append_reply, format_review_notes, parse_patch_lines, resolve_range,
+    Totals, append_reply, format_review_notes, parse_patch_lines, resolve_range, split_files,
 };

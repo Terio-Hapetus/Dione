@@ -11,7 +11,7 @@ pub use runtime::{Command, PermissionResponse, RuntimeHandle};
 pub use state::{
     ConnState, DiffNote, MessageEntry, PatchLine, PendingPermission, ProviderInfo, SelectedModel,
     Store, Totals, append_reply, event_session_id, format_review_notes, parse_patch_lines,
-    resolve_range,
+    resolve_range, split_files,
 };
 pub use transcript::{Cost, Role, TaskId, ToolCall, UnifiedMessage};
 pub use worktree::WorktreeStatus;
