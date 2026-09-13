@@ -153,6 +153,9 @@ impl AdeApp {
                     Some(n) => {
                         let target = (sid.to_string(), name.clone(), n);
                         let set = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                            // A line click starts annotating: any pending
+                            // reply yields to the new target.
+                            app.reply_target = None;
                             // Two-click range select (M8c): first click
                             // anchors, second click in the same file ranges.
                             let (anchor, range) = ade_core::resolve_range(
@@ -232,6 +235,13 @@ impl AdeApp {
                 cx.notify();
             });
             let target_for_reply = target.clone();
+            // Button ids include the range end so L12 and L12-18 never
+            // share a GPUI id.
+            let id_end = target
+                .end_line
+                .filter(|e| *e > target.line)
+                .map(|e| format!("-{e}"))
+                .unwrap_or_default();
             let reply = cx.listener(move |app, _: &ClickEvent, _, cx| {
                 app.reply_target = Some(target_for_reply.clone());
                 app.annotate_target = None;
@@ -258,8 +268,8 @@ impl AdeApp {
                     )
                     .child(
                         Button::new(SharedString::from(format!(
-                            "note-reply-{}-{}-{}",
-                            target.session_id, target.file, target.line
+                            "note-reply-{}-{}-{}{}",
+                            target.session_id, target.file, target.line, id_end
                         )))
                         .label("Reply")
                         .xsmall()
@@ -268,8 +278,8 @@ impl AdeApp {
                     )
                     .child(
                         Button::new(SharedString::from(format!(
-                            "note-del-{}-{}-{}",
-                            target.session_id, target.file, target.line
+                            "note-del-{}-{}-{}{}",
+                            target.session_id, target.file, target.line, id_end
                         )))
                         .label("×")
                         .xsmall()

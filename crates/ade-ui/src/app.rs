@@ -103,7 +103,13 @@ impl AdeApp {
         });
         cx.subscribe_in(&input, window, |this, _, ev, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
-                if this.annotate_target.is_some() || this.reply_target.is_some() {
+                // An anchor alone also captures Enter (as a no-op until
+                // the range resolves) so a half-started annotate never
+                // fires as a chat prompt by accident.
+                if this.annotate_target.is_some()
+                    || this.reply_target.is_some()
+                    || this.annotate_anchor.is_some()
+                {
                     this.submit_annotate(window, cx);
                 } else if !this.store.is_busy() {
                     this.send_prompt(window, cx);
@@ -254,9 +260,12 @@ impl AdeApp {
             return;
         }
         if let Some(target) = self.reply_target.clone() {
-            // Target deleted meanwhile → drop the reply either way.
-            ade_core::append_reply(&mut self.diff_notes, &target, text.trim().to_string());
-            self.reply_target = None;
+            // Target deleted meanwhile → keep the text so the user can
+            // re-target instead of losing the reply silently.
+            if ade_core::append_reply(&mut self.diff_notes, &target, text.trim().to_string()) {
+                self.reply_target = None;
+                self.input.update(cx, |st, cx| st.set_value("", window, cx));
+            }
         } else {
             let Some((sid, file, line, end)) = self.annotate_target.clone() else {
                 return;
@@ -271,8 +280,8 @@ impl AdeApp {
             });
             self.annotate_target = None;
             self.annotate_anchor = None;
+            self.input.update(cx, |st, cx| st.set_value("", window, cx));
         }
-        self.input.update(cx, |st, cx| st.set_value("", window, cx));
         cx.notify();
     }
 

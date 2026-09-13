@@ -44,6 +44,11 @@ impl AdeApp {
                     )
             }))
             .children(anchoring.clone().map(|(_, file, line)| {
+                let clear = cx.listener(move |app, _: &ClickEvent, _, cx| {
+                    app.annotate_anchor = None;
+                    app.annotate_target = None;
+                    cx.notify();
+                });
                 div()
                     .flex()
                     .items_center()
@@ -53,10 +58,17 @@ impl AdeApp {
                     .border_color(warn_color())
                     .child(
                         Label::new(format!(
-                            "✎ anchor {file}:{line} — click another line for a range"
+                            "✎ anchor {file}:{line} — click another line for a range, same line for single"
                         ))
                         .text_size(px(11.))
                         .text_color(warn_color()),
+                    )
+                    .child(
+                        Button::new("anchor-clear")
+                            .label("×")
+                            .xsmall()
+                            .compact()
+                            .on_click(clear),
                     )
             }))
             .children(replying.clone().map(|n| {
