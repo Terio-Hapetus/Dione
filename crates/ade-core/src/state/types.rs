@@ -157,7 +157,11 @@ pub fn parse_patch_lines(patch: &str) -> Vec<PatchLine> {
                 line: None,
                 text: line.to_string(),
             });
-        } else if !in_hunk || line.starts_with("+++") || line.starts_with("---") {
+        } else if !in_hunk
+            || line.starts_with("+++")
+            || line.starts_with("---")
+            || is_patch_header(line)
+        {
             out.push(PatchLine {
                 line: None,
                 text: line.to_string(),
@@ -189,6 +193,26 @@ pub fn parse_patch_lines(patch: &str) -> Vec<PatchLine> {
         }
     }
     out
+}
+
+/// File-boundary lines of a combined diff (fix-4): never content, even
+/// mid-stream after the first hunk. Content lines always start with
+/// `+`/`-`/space, so these bare prefixes are unambiguous.
+fn is_patch_header(line: &str) -> bool {
+    const HEADERS: &[&str] = &[
+        "diff --git ",
+        "index ",
+        "new file",
+        "deleted file",
+        "old mode",
+        "new mode",
+        "rename from ",
+        "rename to ",
+        "similarity ",
+        "dissimilarity ",
+        "Binary ",
+    ];
+    HEADERS.iter().any(|p| line.starts_with(p))
 }
 
 #[derive(Debug, Clone, Default)]

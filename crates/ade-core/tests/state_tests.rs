@@ -502,3 +502,30 @@ fn review_queue_sinks_unknown_sessions() {
         vec!["ses_known".to_string(), "ses_ghost".to_string()]
     );
 }
+
+#[test]
+fn parse_patch_lines_ignores_later_file_headers() {
+    use ade_core::state::parse_patch_lines;
+
+    let patch = "@@ -1,1 +1,1 @@\n-a\n+b\ndiff --git a/g.rs b/g.rs\nindex 123..456 100644\n--- a/g.rs\n+++ b/g.rs\n@@ -5,1 +5,1 @@\n-x\n+y\nnew file mode 100644\nBinary files a/i.png and b/i.png differ\n";
+    let lines = parse_patch_lines(patch);
+    let numbered: Vec<(Option<u32>, &str)> =
+        lines.iter().map(|l| (l.line, l.text.as_str())).collect();
+    let at = |t: &str| numbered.iter().find(|(_, x)| *x == t).unwrap().0;
+    // File-boundary lines are never numbered, even mid-stream.
+    for h in [
+        "diff --git a/g.rs b/g.rs",
+        "index 123..456 100644",
+        "--- a/g.rs",
+        "+++ b/g.rs",
+        "new file mode 100644",
+        "Binary files a/i.png and b/i.png differ",
+    ] {
+        assert_eq!(at(h), None, "{h} must not be numbered");
+    }
+    // Content numbering still works on both sides of the boundary.
+    assert_eq!(at("-a"), Some(1));
+    assert_eq!(at("+b"), Some(1));
+    assert_eq!(at("-x"), Some(5));
+    assert_eq!(at("+y"), Some(5));
+}
