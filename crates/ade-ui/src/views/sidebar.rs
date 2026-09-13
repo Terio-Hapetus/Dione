@@ -1,4 +1,4 @@
-use ade_core::{Command, WorktreeStatus};
+use ade_core::{Command, TaskId, WorktreeStatus};
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
@@ -6,6 +6,29 @@ use gpui_component::{
 
 use super::theme::{bad_color, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
+
+/// Dot for a worktree row (pure: unit-tested). Blocked (retry budget
+/// spent) overrides every session-derived state with red.
+pub(crate) fn fleet_dot(status: WorktreeStatus, blocked: bool) -> Option<Rgba> {
+    if blocked {
+        return Some(bad_color());
+    }
+    match status {
+        WorktreeStatus::Working => Some(ok_color()),
+        WorktreeStatus::NeedsYou => Some(warn_color()),
+        WorktreeStatus::Creating | WorktreeStatus::Done => None,
+    }
+}
+
+/// Task id behind a `fleet: blocked {id} …` sweep message (pure:
+/// unit-tested). Anything else → None, never panics.
+pub(crate) fn blocked_task_in(msg: &str) -> Option<TaskId> {
+    msg.strip_prefix("fleet: blocked ")?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
 
 impl AdeApp {
     pub(crate) fn session_dot(&self, id: &str) -> Option<Rgba> {
@@ -19,11 +42,10 @@ impl AdeApp {
     }
 
     pub(crate) fn worktree_dot(&self, slug: &str) -> Option<Rgba> {
-        match self.store.worktree_status(slug) {
-            WorktreeStatus::Working => Some(ok_color()),
-            WorktreeStatus::NeedsYou => Some(warn_color()),
-            WorktreeStatus::Creating | WorktreeStatus::Done => None,
-        }
+        fleet_dot(
+            self.store.worktree_status(slug),
+            self.store.is_blocked_slug(slug),
+        )
     }
 
     pub(crate) fn session_row(
@@ -96,6 +118,7 @@ impl AdeApp {
         for slug in slugs {
             let active = self.store.active_worktree.as_deref() == Some(slug.as_str());
             let dot = self.worktree_dot(&slug);
+            let blocked = self.store.is_blocked_slug(&slug);
             let select_slug = slug.clone();
             let select = cx.listener(move |this, _: &ClickEvent, _, _| {
                 this.rt.send(Command::SelectWorktree {
@@ -147,18 +170,37 @@ impl AdeApp {
                                 .children(self.vm_badge(&slug)),
                         )
                         .child(
-                            Button::new(SharedString::from(format!("wt-open-{slug}")))
-                                .label("⏻")
-                                .xsmall()
-                                .compact()
-                                .on_click(open),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("wt-del-{slug}")))
-                                .label("×")
-                                .xsmall()
-                                .compact()
-                                .on_click(remove),
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .children(blocked.then(|| {
+                                    let retry_slug = slug.clone();
+                                    let retry = cx.listener(move |this, _: &ClickEvent, _, _| {
+                                        this.rt.send(Command::RetryTask {
+                                            slug: retry_slug.clone(),
+                                        });
+                                    });
+                                    Button::new(SharedString::from(format!("wt-retry-{slug}")))
+                                        .label("↻")
+                                        .xsmall()
+                                        .compact()
+                                        .on_click(retry)
+                                }))
+                                .child(
+                                    Button::new(SharedString::from(format!("wt-open-{slug}")))
+                                        .label("⏻")
+                                        .xsmall()
+                                        .compact()
+                                        .on_click(open),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!("wt-del-{slug}")))
+                                        .label("×")
+                                        .xsmall()
+                                        .compact()
+                                        .on_click(remove),
+                                ),
                         ),
                 );
             for sid in self.store.sessions_in_scope(&slug) {
@@ -221,8 +263,14 @@ impl AdeApp {
             .child(list)
     }
 
-    pub(crate) fn render_error_strip(&self) -> impl IntoElement {
+    pub(crate) fn render_error_strip(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let last = self.store.errors.back().cloned();
+        // Retry target behind the newest blocked message, if still blocked
+        // (a retried/cleared task hides the button by itself).
+        let retry_slug = last
+            .as_deref()
+            .and_then(blocked_task_in)
+            .and_then(|id| self.store.blocked.get(&id).cloned());
         div().children(last.map(|e| {
             div()
                 .flex()
@@ -233,6 +281,66 @@ impl AdeApp {
                 .border_color(bad_color())
                 .child(Label::new("⚠").text_color(bad_color()))
                 .child(Label::new(truncate(&e, 200)).text_color(bad_color()))
+                .children(retry_slug.map(|slug| {
+                    let retry = cx.listener(move |this, _: &ClickEvent, _, _| {
+                        this.rt.send(Command::RetryTask { slug: slug.clone() });
+                    });
+                    Button::new("err-retry")
+                        .label("↻ retry")
+                        .xsmall()
+                        .compact()
+                        .on_click(retry)
+                }))
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // NOTE: same pitfall as vm_badge — no `use super::*`; the file's
+    // `use gpui::*` glob would shadow builtin `#[test]`.
+    use ade_core::WorktreeStatus;
+
+    use crate::views::sidebar::{blocked_task_in, fleet_dot};
+    use crate::views::theme::{bad_color, ok_color, warn_color};
+
+    #[test]
+    fn blocked_overrides_every_dot() {
+        for status in [
+            WorktreeStatus::Creating,
+            WorktreeStatus::Working,
+            WorktreeStatus::NeedsYou,
+            WorktreeStatus::Done,
+        ] {
+            assert_eq!(fleet_dot(status, true), Some(bad_color()));
+        }
+    }
+
+    #[test]
+    fn unblocked_keeps_legacy_dots() {
+        assert_eq!(fleet_dot(WorktreeStatus::Working, false), Some(ok_color()));
+        assert_eq!(
+            fleet_dot(WorktreeStatus::NeedsYou, false),
+            Some(warn_color())
+        );
+        assert_eq!(fleet_dot(WorktreeStatus::Creating, false), None);
+        assert_eq!(fleet_dot(WorktreeStatus::Done, false), None);
+    }
+
+    #[test]
+    fn blocked_id_parses_from_sweep_message() {
+        use ade_core::TaskId;
+
+        let id = TaskId::new();
+        let msg = format!("fleet: blocked {id} (retry budget spent, needs a human look)");
+        assert_eq!(blocked_task_in(&msg), Some(id));
+        // Reclaim lines, foreign errors, and garbage never match.
+        assert_eq!(
+            blocked_task_in("fleet: reclaim x (overdue/stale, will retry)"),
+            None
+        );
+        assert_eq!(blocked_task_in("worktree client failed: boom"), None);
+        assert_eq!(blocked_task_in("fleet: blocked not-a-uuid (x)"), None);
+        assert_eq!(blocked_task_in(""), None);
     }
 }

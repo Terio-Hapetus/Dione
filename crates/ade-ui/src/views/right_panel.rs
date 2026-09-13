@@ -11,6 +11,7 @@ impl AdeApp {
             (RightTab::Context, "context"),
             (RightTab::Inspector, "inspector"),
             (RightTab::Diff, "diff"),
+            (RightTab::File, "file"),
         ];
         let mut header = div().flex().gap_1().px_2().py_1();
         for (t, name) in tabs {
@@ -50,6 +51,7 @@ impl AdeApp {
             // state (nothing ever set it). Show guidance instead.
             RightTab::Inspector => inspector_view(),
             RightTab::Diff => self.render_diff(cx),
+            RightTab::File => self.render_file(cx),
         };
 
         div()

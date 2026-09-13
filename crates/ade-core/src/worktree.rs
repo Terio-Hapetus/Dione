@@ -111,8 +111,20 @@ pub struct WorktreeInfo {
     pub detached: bool,
 }
 
+/// Shared base for new worktrees (M7d): prefer `origin/HEAD` (the remote
+/// default branch) when present locally, else fall back to `HEAD`.
+/// Never fetches — offline-safe by construction. A stale `origin/HEAD`
+/// is still better than whatever checkout happens to be checked out.
+pub async fn resolve_base(repo: &Path) -> &'static str {
+    match run_git(repo, &["rev-parse", "--verify", "origin/HEAD"]).await {
+        Ok(out) if !out.trim().is_empty() => "origin/HEAD",
+        _ => "HEAD",
+    }
+}
+
 /// Create a worktree at `<repo>/.ade-worktrees/<slug>` on branch
-/// `ade/<slug>`, then copy `.worktreeinclude` entries into it.
+/// `ade/<slug>` from the shared base ([`resolve_base`]), then copy
+/// `.worktreeinclude` entries into it.
 pub async fn create(repo: &Path, raw_slug: &str) -> Result<WorktreeRecord, WorktreeError> {
     let slug = normalize_slug(raw_slug);
     if slug.is_empty() {
@@ -126,9 +138,17 @@ pub async fn create(repo: &Path, raw_slug: &str) -> Result<WorktreeRecord, Workt
         return Err(WorktreeError::AlreadyExists(slug));
     }
     let branch = branch_name(&slug);
+    let base = resolve_base(repo).await;
     run_git(
         repo,
-        &["worktree", "add", &path.to_string_lossy(), "-b", &branch],
+        &[
+            "worktree",
+            "add",
+            &path.to_string_lossy(),
+            "-b",
+            &branch,
+            base,
+        ],
     )
     .await?;
     copy_worktreeinclude(repo, &path);
@@ -201,6 +221,18 @@ pub async fn git_diff(path: &Path) -> Result<GitDiff, WorktreeError> {
 /// the worktree. Fails cleanly on a dirty repo or conflicts so the user can
 /// resolve by hand; nothing is deleted in that case.
 pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeError> {
+    let out = merge_branch(repo, slug, &format!("merge: {slug}")).await?;
+    remove(repo, slug).await?;
+    Ok(out)
+}
+
+/// Hand off to local (M8d): merge like a winner but keep the worktree
+/// and its branch so the user can continue locally.
+pub async fn hand_off_to_local(repo: &Path, slug: &str) -> Result<String, WorktreeError> {
+    merge_branch(repo, slug, &format!("handoff: {slug}")).await
+}
+
+async fn merge_branch(repo: &Path, slug: &str, message: &str) -> Result<String, WorktreeError> {
     let dirty = run_git(repo, &["status", "--porcelain"]).await?;
     if !dirty.trim().is_empty() {
         return Err(WorktreeError::Git(
@@ -208,19 +240,139 @@ pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeErr
         ));
     }
     let branch = branch_name(slug);
-    let out = run_git(
+    run_git(repo, &["merge", "--no-ff", &branch, "-m", message])
+        .await
+        .map_err(|e| {
+            WorktreeError::Git(format!(
+                "merge conflict in {branch} — resolve in the repo, then remove the worktree by hand: {e}"
+            ))
+        })
+        .map(|out| out.trim().to_string())
+}
+
+/// Create a local branch `name` at `ade/<slug>` (M8d "create branch
+/// here"): keep a named pointer to the agent's work for local follow-up.
+/// Fails cleanly on bad names, missing source branches, or collisions.
+pub async fn create_branch_here(
+    repo: &Path,
+    slug: &str,
+    name: &str,
+) -> Result<String, WorktreeError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WorktreeError::InvalidSlug(name.to_string()));
+    }
+    run_git(repo, &["check-ref-format", "--branch", name])
+        .await
+        .map_err(|_| WorktreeError::InvalidSlug(name.to_string()))?;
+    let from = branch_name(slug);
+    run_git(
         repo,
-        &["merge", "--no-ff", &branch, "-m", &format!("merge: {slug}")],
+        &["rev-parse", "--verify", &format!("refs/heads/{from}")],
     )
     .await
-    .map_err(|e| {
-        WorktreeError::Git(format!(
-            "merge conflict in {branch} — resolve in the repo, then remove the worktree by hand: {e}"
-        ))
-    })?;
-    remove(repo, slug).await?;
-    Ok(out.trim().to_string())
+    .map_err(|_| WorktreeError::Git(format!("no such branch: {from}")))?;
+    run_git(repo, &["branch", name, &from]).await?;
+    Ok(name.to_string())
 }
+/// One `@@` hunk of a unified diff (M8a cherry-pick). `header` is the
+/// `@@ -a,b +c,d @@` line; `lines` are the body (` `/`+`/`-`) lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hunk {
+    pub header: String,
+    pub lines: Vec<String>,
+}
+
+/// Split a unified patch into its `@@` hunks. Preamble (`diff --git`,
+/// `---`/`+++`) is dropped — [`apply_hunks`] re-synthesizes it.
+pub fn split_hunks(patch: &str) -> Vec<Hunk> {
+    let mut out = Vec::new();
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            out.push(Hunk {
+                header: line.to_string(),
+                lines: Vec::new(),
+            });
+        } else if let Some(h) = out.last_mut() {
+            h.lines.push(line.to_string());
+        }
+    }
+    out
+}
+
+/// Apply a subset of one file's hunks into the checkout at `path`
+/// (M8a cherry-pick). Empty selection is a no-op. New/deleted-file
+/// hunks are rejected — only modification hunks for now.
+/// Fails cleanly (target untouched) when context no longer matches.
+pub async fn apply_hunks(path: &Path, file: &str, hunks: &[Hunk]) -> Result<(), WorktreeError> {
+    if hunks.is_empty() {
+        return Ok(());
+    }
+    // Fail early on anything that is not a plain checkout-relative path:
+    // UI sentinel labels, absolute paths, and parent escapes must never
+    // reach `git apply` (git would refuse `..` anyway — this is clearer).
+    let rel = Path::new(file);
+    let escapes = rel.is_absolute()
+        || rel
+            .components()
+            .any(|c| c == std::path::Component::ParentDir);
+    if file.is_empty() || file.contains(['\n', ',']) || escapes {
+        return Err(WorktreeError::Git(format!("bad file name: {file:?}")));
+    }
+    let mut patch = format!("diff --git a/{file} b/{file}\n--- a/{file}\n+++ b/{file}\n");
+    for h in hunks {
+        if !h.header.starts_with("@@") {
+            return Err(WorktreeError::Git(format!(
+                "bad hunk header: {:?}",
+                h.header
+            )));
+        }
+        patch.push_str(&h.header);
+        patch.push('\n');
+        for l in &h.lines {
+            patch.push_str(l);
+            patch.push('\n');
+        }
+    }
+    run_git_stdin(path, &["apply", "-"], &patch)
+        .await
+        .map(|_| ())
+}
+
+async fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> Result<String, WorktreeError> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+
+    let mut child = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(input.as_bytes())
+            .await
+            .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    }
+    let out = child
+        .wait_with_output()
+        .await
+        .map_err(|e| WorktreeError::Io(e.to_string()))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(WorktreeError::Git(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )))
+    }
+}
+
 /// `git worktree prune` plus deletion of merged `ade/*` orphan branches
 /// whose worktree directory is gone.
 pub async fn prune(repo: &Path) -> Result<(), WorktreeError> {

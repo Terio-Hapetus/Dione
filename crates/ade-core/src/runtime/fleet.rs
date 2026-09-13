@@ -9,6 +9,7 @@
 //! [`FleetInbox`] (owned by `RuntimeHandle`), not in the per-session
 //! `LoopState` which is rebuilt on every reconnect.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use crate::state::Store;
@@ -23,13 +24,54 @@ pub trait SupervisedTask: Send {
     fn slug(&self) -> Option<&str> {
         None
     }
+    /// Retry budget for the sweeper (M7a). Default matches
+    /// `ade-workspace`'s `DEFAULT_FAILURE_LIMIT`; `Supervisor` overrides
+    /// it from its `Task`.
+    fn failure_limit(&self) -> u8 {
+        2
+    }
+    /// Soft runtime cap in seconds for stale reclaim (fix-2). Default
+    /// None (stale-only); `Supervisor` overrides it from its `Task`.
+    fn max_runtime_secs(&self) -> Option<u64> {
+        None
+    }
     /// Drain new backend events into the store. Must be non-blocking:
     /// it runs inside the runtime `select!` loop.
     fn tick(&mut self, store: &mut Store);
+    /// Backend error hits since the last call (M7a retry budget): one
+    /// entry per observed `Error` event. Default: no errors. The inbox
+    /// forwards these to the sweeper after every drain.
+    fn drain_errors(&mut self) -> Vec<TaskId> {
+        Vec::new()
+    }
+    /// Backend success hits since the last call (fix-2): one entry per
+    /// observed terminal-good status (`Idle`/`Done`). The inbox forwards
+    /// these so an error→success→error cycle never blocks under budget.
+    fn drain_successes(&mut self) -> Vec<TaskId> {
+        Vec::new()
+    }
+    /// Manual retry (M7b): clear budget state so the task runs again.
+    /// Default: no-op (stateless tasks). The inbox re-tracks afterwards.
+    fn retry_reset(&mut self) {}
+    /// Handoff snapshot for opening a continuation task (M7c).
+    /// Default: this task cannot be continued (stateless stubs).
+    fn handoff(&self) -> Option<TaskHandoff> {
+        None
+    }
     /// Record which session feeds this task. Default: ignore.
     fn bind_session(&mut self, _session_id: &str) {}
     /// Forget a retired session. Default: ignore.
     fn unbind_session(&mut self, _session_id: &str) {}
+}
+
+/// Handoff data (M7c): everything a driver needs to open a continuation
+/// task without naming backends or workspaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskHandoff {
+    pub parent: TaskId,
+    pub slug: String,
+    pub agent_ref: String,
+    pub summary: Option<String>,
 }
 
 /// Kanban-lite sweep report for one task. Pure report, no side effects.
@@ -38,7 +80,7 @@ pub trait SupervisedTask: Send {
 pub enum SweepAction {
     /// Overdue or stale: take the task back for reassignment/retry.
     Reclaim(TaskId),
-    /// Errored twice in a row: stop auto-retry, needs a human look.
+    /// Retry budget spent: stop auto-retry, needs a human look.
     Blocked(TaskId),
 }
 
@@ -47,8 +89,21 @@ pub enum SweepAction {
 /// `ade-core`'s own transcript key.
 pub trait TaskSweeper: Send {
     fn track_task(&mut self, task: TaskId);
+    /// Track with an explicit retry budget (M7a). Default keeps the old
+    /// behavior so existing sweepers compile untouched.
+    fn track_task_with_limit(&mut self, task: TaskId, _limit: u8) {
+        self.track_task(task);
+    }
     fn untrack_task(&mut self, task: &TaskId);
     fn note_task_error(&mut self, task: &TaskId);
+    /// Record a success (fix-2): resets the error streak. Default: no-op
+    /// so existing sweepers compile untouched.
+    fn note_task_success(&mut self, _task: &TaskId) {}
+    /// Track with budget + deadline (fix-2). Default folds back to the
+    /// budget-only hook so existing sweepers compile untouched.
+    fn track_task_full(&mut self, task: TaskId, limit: u8, _max_runtime_secs: Option<u64>) {
+        self.track_task_with_limit(task, limit);
+    }
     fn sweep(&self) -> Vec<SweepAction>;
 }
 
@@ -79,6 +134,12 @@ impl std::fmt::Debug for dyn SupervisedTask {
     }
 }
 
+impl Default for FleetInbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FleetInbox {
     pub fn new() -> Self {
         Self {
@@ -88,10 +149,31 @@ impl FleetInbox {
     }
 
     /// Register a supervised task (driver: M6 Open-Workspace flow).
-    pub fn register_task(&self, task: Box<dyn SupervisedTask>) {
+    /// Rejects a second live task for the same worktree slug (M7d 1:1):
+    /// returns false and registers nothing in that case. Tasks without a
+    /// slug never collide.
+    pub fn register_task(&self, task: Box<dyn SupervisedTask>) -> bool {
         if let Ok(mut tasks) = self.tasks.lock() {
+            let dup = task
+                .slug()
+                .is_some_and(|sl| tasks.iter().any(|t| t.slug().is_some_and(|s| s == sl)));
+            if dup {
+                return false;
+            }
             tasks.push(task);
+            true
+        } else {
+            false
         }
+    }
+
+    /// Is a live task already owning `slug`? Drivers check this before
+    /// building backends so a duplicate open fails without side effects.
+    pub fn has_slug(&self, slug: &str) -> bool {
+        self.tasks
+            .lock()
+            .map(|tasks| tasks.iter().any(|t| t.slug().is_some_and(|sl| sl == slug)))
+            .unwrap_or(false)
     }
 
     /// Install (or replace) the kanban-lite sweeper.
@@ -107,20 +189,38 @@ impl FleetInbox {
         self.sweeper.lock().map(|sw| sw.is_some()).unwrap_or(false)
     }
 
-    /// Hook A body: drain tasks after reconcile, sweep ~every 60s.
+    /// Hook A body: drain tasks after reconcile, forward backend error
+    /// and success hits to the sweeper (M7a retry budget + fix-2 reset),
+    /// sweep ~every 60s.
+    /// Blocked tasks are mirrored into the store and untracked so later
+    /// sweeps stay silent until a manual retry (M7b).
     /// Public so drivers/tests can drive the fleet without a server.
     pub fn poll_fleet(&self, store: &mut Store, tick: u64) {
+        let mut error_hits = Vec::new();
+        let mut success_hits = Vec::new();
+        let mut slugs = BTreeMap::new();
         if let Ok(mut tasks) = self.tasks.lock() {
             drain_fleet(&mut tasks, store);
+            for t in tasks.iter_mut() {
+                error_hits.extend(t.drain_errors());
+                success_hits.extend(t.drain_successes());
+                slugs.insert(t.task_id(), t.slug().unwrap_or("").to_string());
+            }
         }
-        if sweep_due(tick) {
-            let actions = self
-                .sweeper
-                .lock()
-                .ok()
-                .and_then(|sw| sw.as_ref().map(|sw| sw.sweep()));
-            if let Some(actions) = actions {
-                apply_sweep(store, &actions);
+        if let Ok(mut sw) = self.sweeper.lock()
+            && let Some(sw) = sw.as_mut()
+        {
+            for id in &error_hits {
+                sw.note_task_error(id);
+            }
+            for id in &success_hits {
+                sw.note_task_success(id);
+            }
+            if sweep_due(tick) {
+                let blocked = apply_sweep_with_slugs(store, &sw.sweep(), &slugs);
+                for id in &blocked {
+                    sw.untrack_task(id);
+                }
             }
         }
     }
@@ -138,6 +238,31 @@ impl FleetInbox {
     pub fn release(&self, store: &Store, sids: &[String]) {
         if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
             release_sessions(&mut tasks, &mut sw, store, sids);
+        }
+    }
+
+    /// Manual retry (M7b): reset every live task owning `slug` and
+    /// re-track it with its own budget + deadline. Returns false when no
+    /// live task owns `slug`. The caller clears the `Store.blocked` mirror.
+    pub fn retry_task(&self, slug: &str) -> bool {
+        if let (Ok(mut tasks), Ok(mut sw)) = (self.tasks.lock(), self.sweeper.lock()) {
+            let mut retried = false;
+            for t in tasks.iter_mut() {
+                if t.slug().is_some_and(|sl| sl == slug) {
+                    let id = t.task_id();
+                    let limit = t.failure_limit();
+                    let deadline = t.max_runtime_secs();
+                    t.retry_reset();
+                    if let Some(sw) = sw.as_mut() {
+                        sw.untrack_task(&id);
+                        sw.track_task_full(id, limit, deadline);
+                    }
+                    retried = true;
+                }
+            }
+            retried
+        } else {
+            false
         }
     }
 
@@ -161,20 +286,37 @@ pub(crate) fn drain_fleet(fleet: &mut [Box<dyn SupervisedTask>], store: &mut Sto
 }
 
 /// Action consumer: surface both actions as errors so nothing is
-/// silently dropped. Reclaim hints retry; Blocked asks for a human.
-pub fn apply_sweep(store: &mut Store, actions: &[SweepAction]) {
+/// silently dropped. Reclaim hints retry; Blocked asks for a human and is
+/// mirrored into `Store.blocked` (M7b) keyed by task, with the owning
+/// worktree slug resolved from the inbox (`""` when never session-bound).
+/// Returns the blocked task ids so the caller can untrack them.
+pub fn apply_sweep_with_slugs(
+    store: &mut Store,
+    actions: &[SweepAction],
+    slugs: &BTreeMap<TaskId, String>,
+) -> Vec<TaskId> {
+    let mut blocked = Vec::new();
     for a in actions {
         match a {
             SweepAction::Reclaim(id) => {
                 store.push_error(format!("fleet: reclaim {id} (overdue/stale, will retry)"));
             }
             SweepAction::Blocked(id) => {
+                let slug = slugs.get(id).cloned().unwrap_or_default();
+                store.mark_blocked(*id, slug);
                 store.push_error(format!(
-                    "fleet: blocked {id} (2 errors, needs a human look)"
+                    "fleet: blocked {id} (retry budget spent, needs a human look)"
                 ));
+                blocked.push(*id);
             }
         }
     }
+    blocked
+}
+
+/// Action consumer without inbox slug context (tests, legacy callers).
+pub fn apply_sweep(store: &mut Store, actions: &[SweepAction]) {
+    apply_sweep_with_slugs(store, actions, &BTreeMap::new());
 }
 
 /// Bind a fresh session to the supervised tasks owning its scope and
@@ -192,7 +334,7 @@ pub(crate) fn bind_new_session(
         if t.slug().is_some_and(|sl| sl == scope) {
             t.bind_session(session_id);
             if let Some(sw) = sweeper.as_mut() {
-                sw.track_task(t.task_id());
+                sw.track_task_full(t.task_id(), t.failure_limit(), t.max_runtime_secs());
             }
         }
     }
@@ -310,6 +452,45 @@ mod tests {
             &[SweepAction::Reclaim(id), SweepAction::Blocked(id)],
         );
         assert_eq!(store.errors.len(), 2);
+    }
+
+    #[test]
+    fn sweep_with_slugs_mirrors_blocked() {
+        let mut store = Store::default();
+        let a = TaskId::new();
+        let b = TaskId::new();
+        let slugs: BTreeMap<TaskId, String> = [(a, "wt-a".to_string())].into_iter().collect();
+        let blocked = apply_sweep_with_slugs(
+            &mut store,
+            &[SweepAction::Blocked(a), SweepAction::Blocked(b)],
+            &slugs,
+        );
+        assert_eq!(blocked, vec![a, b]);
+        assert!(store.is_blocked_slug("wt-a"));
+        // Unknown task ids mirror with an empty slug, never crash.
+        assert_eq!(store.blocked.get(&b).map(String::as_str), Some(""));
+        assert_eq!(store.errors.len(), 2);
+    }
+
+    #[test]
+    fn retry_task_resets_and_retracks_by_slug() {
+        let inbox = FleetInbox::new();
+        let log: Arc<Mutex<Vec<String>>> = Default::default();
+        inbox.register_task(Box::new(Logged {
+            id: TaskId::new(),
+            owned_slug: Some("wt-a".into()),
+            log: Arc::clone(&log),
+        }));
+        inbox.register_sweeper(Box::new(LoggedSweeper {
+            log: Arc::clone(&log),
+        }));
+        assert!(inbox.retry_task("wt-a"));
+        assert!(!inbox.retry_task("nope"));
+        let got = log.lock().unwrap().clone();
+        // untrack (drop old budget) then re-track with the task's limit.
+        assert_eq!(got.len(), 2);
+        assert!(got[0].starts_with("untrack:"));
+        assert!(got[1].starts_with("track:"));
     }
 
     use std::sync::{Arc, Mutex};
@@ -435,6 +616,27 @@ mod tests {
     }
 
     #[test]
+    fn register_task_rejects_duplicate_slug() {
+        let inbox = FleetInbox::new();
+        let mk = |slug: Option<&str>| Logged {
+            id: TaskId::new(),
+            owned_slug: slug.map(str::to_string),
+            log: Default::default(),
+        };
+        assert!(inbox.register_task(Box::new(mk(Some("wt-a")))));
+        assert!(inbox.has_slug("wt-a"));
+        assert!(!inbox.has_slug("wt-b"));
+        // Same slug: rejected, count unchanged.
+        assert!(!inbox.register_task(Box::new(mk(Some("wt-a")))));
+        assert_eq!(inbox.task_count(), 1);
+        // Different slug: fine. Slug-less tasks never collide.
+        assert!(inbox.register_task(Box::new(mk(Some("wt-b")))));
+        assert!(inbox.register_task(Box::new(mk(None))));
+        assert!(inbox.register_task(Box::new(mk(None))));
+        assert_eq!(inbox.task_count(), 4);
+    }
+
+    #[test]
     fn inbox_binds_and_releases_by_scope() {
         let inbox = FleetInbox::new();
         let log: Arc<Mutex<Vec<String>>> = Default::default();
@@ -453,5 +655,94 @@ mod tests {
         assert!(got.contains(&"bind:s1".to_string()));
         assert!(!got.iter().any(|l| l == "bind:s-root"));
         assert!(got.contains(&"unbind:s1".to_string()));
+    }
+
+    /// Task reporting backend error hits; the inbox must forward them.
+    struct ErrTask {
+        id: TaskId,
+        hits: usize,
+    }
+
+    impl SupervisedTask for ErrTask {
+        fn task_id(&self) -> TaskId {
+            self.id
+        }
+
+        fn tick(&mut self, _store: &mut Store) {}
+
+        fn drain_errors(&mut self) -> Vec<TaskId> {
+            let out = vec![self.id; self.hits];
+            self.hits = 0;
+            out
+        }
+    }
+
+    struct RecSweeper {
+        notes: Arc<Mutex<Vec<TaskId>>>,
+        tracked: Arc<Mutex<Vec<(TaskId, u8)>>>,
+    }
+
+    impl TaskSweeper for RecSweeper {
+        fn track_task(&mut self, task: TaskId) {
+            self.tracked.lock().unwrap().push((task, 2));
+        }
+        fn track_task_with_limit(&mut self, task: TaskId, limit: u8) {
+            self.tracked.lock().unwrap().push((task, limit));
+        }
+        fn untrack_task(&mut self, _task: &TaskId) {}
+        fn note_task_error(&mut self, task: &TaskId) {
+            self.notes.lock().unwrap().push(*task);
+        }
+        fn sweep(&self) -> Vec<SweepAction> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    fn poll_fleet_forwards_backend_errors_to_sweeper() {
+        let inbox = FleetInbox::new();
+        let id = TaskId::new();
+        inbox.register_task(Box::new(ErrTask { id, hits: 2 }));
+        let notes: Arc<Mutex<Vec<TaskId>>> = Default::default();
+        inbox.register_sweeper(Box::new(RecSweeper {
+            notes: Arc::clone(&notes),
+            tracked: Default::default(),
+        }));
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(*notes.lock().unwrap(), vec![id, id]);
+        // Drained: a second poll forwards nothing new.
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(notes.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn bind_new_forwards_failure_limit() {
+        struct LimTask {
+            id: TaskId,
+            limit: u8,
+        }
+        impl SupervisedTask for LimTask {
+            fn task_id(&self) -> TaskId {
+                self.id
+            }
+            fn slug(&self) -> Option<&str> {
+                Some("wt-lim")
+            }
+            fn failure_limit(&self) -> u8 {
+                self.limit
+            }
+            fn tick(&mut self, _store: &mut Store) {}
+        }
+        let inbox = FleetInbox::new();
+        let id = TaskId::new();
+        inbox.register_task(Box::new(LimTask { id, limit: 5 }));
+        let tracked: Arc<Mutex<Vec<(TaskId, u8)>>> = Default::default();
+        inbox.register_sweeper(Box::new(RecSweeper {
+            notes: Default::default(),
+            tracked: Arc::clone(&tracked),
+        }));
+        inbox.bind_new("wt-lim", "s1");
+        assert_eq!(*tracked.lock().unwrap(), vec![(id, 5)]);
     }
 }

@@ -35,6 +35,11 @@ pub struct Store {
     /// Sessions removed with their worktree: stray in-flight SSE frames for
     /// these ids are ignored instead of resurrecting them.
     pub retired_sessions: BTreeSet<String>,
+    /// M7b: tasks stopped by the retry budget (`task -> worktree slug`,
+    /// `""` when the task never bound a session). Written by the fleet
+    /// sweep, read by the Fleet badge + retry buttons, cleared by manual
+    /// retry. In-memory only: a restart rebuilds it from fresh sweeps.
+    pub blocked: BTreeMap<TaskId, String>,
 }
 
 impl Store {
@@ -68,6 +73,30 @@ impl Store {
         while self.errors.len() > 20 {
             self.errors.pop_front();
         }
+    }
+
+    // -- M7b: blocked mirror ------------------------------------------------
+    pub fn mark_blocked(&mut self, task: TaskId, slug: impl Into<String>) {
+        self.blocked.insert(task, slug.into());
+    }
+
+    pub fn is_blocked_slug(&self, slug: &str) -> bool {
+        self.blocked.values().any(|s| s == slug)
+    }
+
+    /// Clear every blocked task owned by `slug`; returns their ids so the
+    /// caller can re-track them. Unknown slugs clear nothing.
+    pub fn clear_blocked_by_slug(&mut self, slug: &str) -> Vec<TaskId> {
+        let ids: Vec<TaskId> = self
+            .blocked
+            .iter()
+            .filter(|(_, s)| s.as_str() == slug)
+            .map(|(t, _)| *t)
+            .collect();
+        for id in &ids {
+            self.blocked.remove(id);
+        }
+        ids
     }
 
     // -- M1: sessions -------------------------------------------------------
@@ -195,6 +224,39 @@ impl Store {
         ids.into_iter().map(|(id, _)| id.clone()).collect()
     }
 
+    // -- M8b: review queue --------------------------------------------------
+    /// Sort key for the review queue: sessions blocked on a human come
+    /// first, then longest waiting (oldest `time.updated`) first.
+    /// Missing sessions (retired/orphan diffs) sink to the bottom.
+    pub fn review_rank(&self, sid: &str) -> (bool, u64) {
+        let updated = self
+            .sessions
+            .get(sid)
+            .map(|s| s.time.updated)
+            .unwrap_or(u64::MAX);
+        (!self.has_pending(sid), updated)
+    }
+
+    /// Sort session ids into review order (fair across scopes).
+    pub fn sort_review_sids(&self, mut sids: Vec<String>) -> Vec<String> {
+        sids.sort_by_key(|sid| self.review_rank(sid));
+        sids
+    }
+
+    /// Sort scopes by their longest-waiting session with a diff. The main
+    /// scope (`""`) competes on equal terms; scopes without diffs sink.
+    pub fn sort_review_scopes(&self, mut scopes: Vec<String>) -> Vec<String> {
+        scopes.sort_by_key(|scope| {
+            self.diffs
+                .keys()
+                .filter(|sid| self.scope_of(sid) == scope)
+                .map(|sid| self.review_rank(sid))
+                .min()
+                .unwrap_or((true, u64::MAX))
+        });
+        scopes
+    }
+
     /// Dashboard status for a worktree, derived from its main session.
     pub fn worktree_status(&self, slug: &str) -> WorktreeStatus {
         let Some(record) = self.worktrees.get(slug) else {
@@ -311,6 +373,24 @@ mod tests {
     fn set_active_rejects_unknown() {
         let mut s = Store::default();
         assert!(!s.set_active("nope"));
+    }
+
+    #[test]
+    fn blocked_mirror_round_trip() {
+        let mut s = Store::default();
+        let a = TaskId::new();
+        let b = TaskId::new();
+        assert!(!s.is_blocked_slug("wt-a"));
+        s.mark_blocked(a, "wt-a");
+        s.mark_blocked(b, "wt-b");
+        assert!(s.is_blocked_slug("wt-a"));
+        assert!(s.is_blocked_slug("wt-b"));
+        // Clearing one slug leaves the other alone.
+        assert_eq!(s.clear_blocked_by_slug("wt-a"), vec![a]);
+        assert!(!s.is_blocked_slug("wt-a"));
+        assert!(s.is_blocked_slug("wt-b"));
+        // Unknown slugs clear nothing, never crash.
+        assert!(s.clear_blocked_by_slug("nope").is_empty());
     }
 
     #[test]

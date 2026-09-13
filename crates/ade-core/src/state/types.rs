@@ -50,16 +50,82 @@ pub struct DiffNote {
     pub session_id: String,
     pub file: String,
     pub line: u32,
+    /// Multi-line range end (M8c): `None` (or `<= line`) = single line.
+    pub end_line: Option<u32>,
     pub text: String,
+    /// Thread replies (M8c2): follow-ups appended under the note.
+    pub replies: Vec<String>,
 }
 
 /// Format review notes as a prompt body for the agent.
 pub fn format_review_notes(notes: &[DiffNote]) -> String {
     let mut out = String::from("Review feedback — please address each item:\n");
     for n in notes {
-        out.push_str(&format!("- {}:{} — {}\n", n.file, n.line, n.text));
+        let loc = match n.end_line {
+            Some(e) if e > n.line => format!("{}-{}", n.line, e),
+            _ => format!("{}", n.line),
+        };
+        out.push_str(&format!("- {}:{} — {}\n", n.file, loc, n.text));
+        for r in &n.replies {
+            out.push_str(&format!("  ↳ {r}\n"));
+        }
     }
     out
+}
+
+/// Append a reply to the note equal to `target` (M8c2, pure).
+/// Returns false when the target is gone (deleted meanwhile).
+pub fn append_reply(notes: &mut [DiffNote], target: &DiffNote, reply: String) -> bool {
+    match notes.iter_mut().find(|n| *n == target) {
+        Some(n) => {
+            n.replies.push(reply);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Anchor state machine for two-click range select (M8c, pure).
+/// Returns `(start, end)` with `start <= end`, or `None` when the click
+/// only sets/moves the anchor. Clicking the anchor line itself clears it
+/// back to a single-line target.
+pub fn resolve_range(
+    anchor: Option<(String, String, u32)>,
+    click: (String, String, u32),
+) -> (Option<(String, String, u32)>, Option<(u32, u32)>) {
+    let (sid, file, line) = click;
+    match anchor {
+        Some((a_sid, a_file, a_line)) if a_sid == sid && a_file == file => {
+            if a_line == line {
+                (None, Some((line, line)))
+            } else {
+                (None, Some((a_line.min(line), a_line.max(line))))
+            }
+        }
+        _ => (Some((sid, file, line)), None),
+    }
+}
+
+/// Split a combined unified diff into `(file, section)` pairs at
+/// `diff --git` boundaries (pure). Preamble-less hunks yield no pairs;
+/// callers surface those as one working-tree block instead.
+pub fn split_files(raw: &str) -> Vec<(Option<String>, String)> {
+    let mut out: Vec<(Option<String>, String)> = Vec::new();
+    for line in raw.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            out.push((file_from_git_header(rest), format!("{line}\n")));
+        } else if let Some((_, section)) = out.last_mut() {
+            section.push_str(line);
+            section.push('\n');
+        }
+    }
+    out
+}
+
+/// `a/foo b/foo` → `foo` (loose: strips quotes, takes the `b/` side).
+fn file_from_git_header(rest: &str) -> Option<String> {
+    let name = rest.rsplit(" b/").next()?.trim().trim_matches('"');
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// One rendered diff line with its new/old-file number, if countable.
@@ -91,7 +157,11 @@ pub fn parse_patch_lines(patch: &str) -> Vec<PatchLine> {
                 line: None,
                 text: line.to_string(),
             });
-        } else if !in_hunk || line.starts_with("+++") || line.starts_with("---") {
+        } else if !in_hunk
+            || line.starts_with("+++")
+            || line.starts_with("---")
+            || is_patch_header(line)
+        {
             out.push(PatchLine {
                 line: None,
                 text: line.to_string(),
@@ -123,6 +193,26 @@ pub fn parse_patch_lines(patch: &str) -> Vec<PatchLine> {
         }
     }
     out
+}
+
+/// File-boundary lines of a combined diff (fix-4): never content, even
+/// mid-stream after the first hunk. Content lines always start with
+/// `+`/`-`/space, so these bare prefixes are unambiguous.
+fn is_patch_header(line: &str) -> bool {
+    const HEADERS: &[&str] = &[
+        "diff --git ",
+        "index ",
+        "new file",
+        "deleted file",
+        "old mode",
+        "new mode",
+        "rename from ",
+        "rename to ",
+        "similarity ",
+        "dissimilarity ",
+        "Binary ",
+    ];
+    HEADERS.iter().any(|p| line.starts_with(p))
 }
 
 #[derive(Debug, Clone, Default)]

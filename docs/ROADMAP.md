@@ -75,17 +75,20 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [ ] Còn lại: Open-Workspace VM-thread wiring (`VmManager` → UI,
       `set_vm_state`/banner hết dead, SSH tab vào guest) + live KVM
 
-## M7 — Fleet reliability (học Hermes kanban)
+## M7 — Fleet reliability (học Hermes kanban) ✅ done (Host-only)
 
-- [ ] Retry budget + circuit breaker (`failure_limit=2 → blocked`)
-- [ ] Structured handoff `summary/metadata + parent link`
-- [ ] Worktree hygiene: base `origin/HEAD`, 1 subtask = 1 worktree riêng
+- [x] Retry budget + circuit breaker (`failure_limit=2 → blocked`, per-task)
+- [x] Structured handoff `summary + parent link` (data-only UI)
+- [x] Worktree hygiene: base `origin/HEAD` (offline-safe), 1 subtask = 1 worktree riêng
 
-## M8 — Review++ (học Orca aggregator + Codex review queue)
+## M8 — Review++ (học Orca aggregator + Codex review queue) ✅ done (trên branch M7)
 
-- [ ] Review queue sort theo chờ-lâu-nhất; split-view 2 cột + cherry-pick hunk
-- [ ] `Hand off to local` vs `Create branch here`; annotate multi-line + thread
-- [ ] Editor-lite p1: read-only viewer (Tree-sitter), mở file từ diff
+- [x] Review queue sort chờ-lâu-nhất (NeedsYou + updated cũ nhất, fair queue);
+      split-view 2 cột để sau; cherry-pick hunk (`split/apply` + Diff tab picks)
+- [x] `Hand off to local` (merge giữ worktree) vs `Create branch here`;
+      annotate multi-line (two-click range) + thread replies
+- [x] Editor-lite p1: read-only viewer text-first (tab File, gutter số dòng,
+      cap 256KB/2000 dòng); Tree-sitter grammars để sau (cần mạng)
 
 ## M9 — Cost / BYOK
 

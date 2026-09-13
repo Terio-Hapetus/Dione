@@ -3,7 +3,7 @@
 //! `composer`, `right_panel`, `diff`, `permission`); shared colors and
 //! text helpers live in `views::theme`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +25,7 @@ pub(crate) enum RightTab {
     Context,
     Inspector,
     Diff,
+    File,
 }
 
 pub struct AdeApp {
@@ -34,7 +35,20 @@ pub struct AdeApp {
     pub(crate) right_tab: RightTab,
     pub(crate) model_ix: Option<usize>,
     pub(crate) diff_notes: Vec<DiffNote>,
-    pub(crate) annotate_target: Option<(String, String, u32)>,
+    /// Single/range note target: `(session, file, start, end)` with
+    /// `end = None` for a single line (M8c multi-line).
+    pub(crate) annotate_target: Option<(String, String, u32, Option<u32>)>,
+    /// Pending range anchor (M8c two-click select): first click waits
+    /// for a second click in the same file.
+    pub(crate) annotate_anchor: Option<(String, String, u32)>,
+    /// Thread reply target (M8c2): composer text appends to this note's
+    /// `replies` instead of creating a new note.
+    pub(crate) reply_target: Option<DiffNote>,
+    /// Cherry-picked hunks (M8a): `(session_id, file, hunk_idx)` selected
+    /// in the Diff tab, applied to the main checkout on demand.
+    pub(crate) hunk_picks: BTreeSet<(String, String, usize)>,
+    /// File open in the viewer tab (M8e, text-first).
+    pub(crate) open_file: Option<crate::views::file::OpenFile>,
     /// KVM capability at startup. False → Host-mode banner (Lab 6).
     pub(crate) vm_available: bool,
     /// Workspace slug → VM lifecycle state. Filled by the VmManager
@@ -89,7 +103,13 @@ impl AdeApp {
         });
         cx.subscribe_in(&input, window, |this, _, ev, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
-                if this.annotate_target.is_some() {
+                // An anchor alone also captures Enter (as a no-op until
+                // the range resolves) so a half-started annotate never
+                // fires as a chat prompt by accident.
+                if this.annotate_target.is_some()
+                    || this.reply_target.is_some()
+                    || this.annotate_anchor.is_some()
+                {
                     this.submit_annotate(window, cx);
                 } else if !this.store.is_busy() {
                     this.send_prompt(window, cx);
@@ -180,6 +200,10 @@ impl AdeApp {
             model_ix: None,
             diff_notes: Vec::new(),
             annotate_target: None,
+            annotate_anchor: None,
+            reply_target: None,
+            hunk_picks: BTreeSet::new(),
+            open_file: None,
             vm_available: probe_kvm(),
             vm_states: BTreeMap::new(),
             vm_ssh: BTreeMap::new(),
@@ -227,23 +251,37 @@ impl AdeApp {
         self.input.update(cx, |st, cx| st.set_value("", window, cx));
     }
 
-    /// Submit the composer text as a review note on the targeted diff line.
+    /// Submit the composer text as a review note on the targeted diff
+    /// line or range — or, when replying, as a thread reply under the
+    /// targeted note (M8c2).
     pub(crate) fn submit_annotate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((sid, file, line)) = self.annotate_target.clone() else {
-            return;
-        };
         let text = self.input.read(cx).value().to_string();
         if text.trim().is_empty() {
             return;
         }
-        self.diff_notes.push(DiffNote {
-            session_id: sid,
-            file,
-            line,
-            text: text.trim().to_string(),
-        });
-        self.annotate_target = None;
-        self.input.update(cx, |st, cx| st.set_value("", window, cx));
+        if let Some(target) = self.reply_target.clone() {
+            // Target deleted meanwhile → keep the text so the user can
+            // re-target instead of losing the reply silently.
+            if ade_core::append_reply(&mut self.diff_notes, &target, text.trim().to_string()) {
+                self.reply_target = None;
+                self.input.update(cx, |st, cx| st.set_value("", window, cx));
+            }
+        } else {
+            let Some((sid, file, line, end)) = self.annotate_target.clone() else {
+                return;
+            };
+            self.diff_notes.push(DiffNote {
+                session_id: sid,
+                file,
+                line,
+                end_line: end,
+                text: text.trim().to_string(),
+                replies: Vec::new(),
+            });
+            self.annotate_target = None;
+            self.annotate_anchor = None;
+            self.input.update(cx, |st, cx| st.set_value("", window, cx));
+        }
         cx.notify();
     }
 
@@ -308,7 +346,7 @@ impl Render for AdeApp {
                             .flex_col()
                             .overflow_hidden()
                             .child(self.render_vm_banner())
-                            .child(self.render_error_strip())
+                            .child(self.render_error_strip(cx))
                             .child(if self.show_terminal {
                                 self.render_terminal(cx)
                             } else {

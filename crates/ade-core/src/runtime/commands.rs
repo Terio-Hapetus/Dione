@@ -26,9 +26,29 @@ pub enum Command {
     FanOut {
         text: String,
     },
+    /// Manual retry (M7b): reset the blocked task owning `slug` and
+    /// re-track it with its own budget.
+    RetryTask {
+        slug: String,
+    },
     Abort,
     FetchDiff(String),
     FetchAllDiffs,
+    /// Cherry-pick hunks (M8a): apply selected unified-diff hunks of
+    /// `file` into the main repo checkout.
+    ApplyHunks {
+        file: String,
+        hunks: Vec<crate::worktree::Hunk>,
+    },
+    /// Create branch `name` at `ade/<slug>` (M8d "create branch here").
+    CreateBranchHere {
+        slug: String,
+        name: String,
+    },
+    /// Merge like a winner but keep the worktree (M8d "hand off to local").
+    HandOffToLocal {
+        slug: String,
+    },
     SendNotes {
         session_id: String,
         notes: Vec<crate::state::DiffNote>,

@@ -34,6 +34,26 @@ pub(crate) async fn handle_command(
         Command::CreateWorktree { slug } => create_worktree(st, slot, slug, inbox).await,
         Command::RemoveWorktree { slug } => remove_worktree(st, &slug, inbox).await,
         Command::MergeWorktree { slug } => merge_worktree(st, &slug, inbox).await,
+        Command::CreateBranchHere { slug, name } => {
+            match worktree::create_branch_here(&st.repo, &slug, &name).await {
+                Ok(branch) => st
+                    .store
+                    .push_error(format!("fleet: branched {slug} here as {branch}")),
+                Err(e) => st.store.push_error(format!("branch here failed: {e:#}")),
+            }
+        }
+        Command::HandOffToLocal { slug } => {
+            match worktree::hand_off_to_local(&st.repo, &slug).await {
+                Ok(summary) => {
+                    tracing::info!("handed off {slug}: {summary}");
+                    st.store
+                        .push_error(format!("fleet: {slug} handed off to local (worktree kept)"));
+                }
+                Err(e) => st
+                    .store
+                    .push_error(format!("hand off {slug} failed: {e:#}")),
+            }
+        }
         Command::SelectWorktree { slug } => select_worktree(st, &slug).await,
         Command::SelectSession { id } => {
             if st.store.sessions.contains_key(&id) {
@@ -56,6 +76,17 @@ pub(crate) async fn handle_command(
             }
         }
         Command::FanOut { text } => fan_out(st, text).await,
+        Command::RetryTask { slug } => {
+            if inbox.retry_task(&slug) {
+                let n = st.store.clear_blocked_by_slug(&slug).len();
+                st.store.push_error(format!(
+                    "fleet: retried {slug} ({n} task(s) back under budget)"
+                ));
+            } else {
+                st.store
+                    .push_error(format!("fleet: nothing blocked for {slug}"));
+            }
+        }
         Command::SendNotes { session_id, notes } => {
             if notes.is_empty() {
                 return true;
@@ -97,6 +128,15 @@ pub(crate) async fn handle_command(
             for sid in sids {
                 let client = st.client_for(&sid).clone();
                 fetch_diff(st, &client, &sid).await;
+            }
+        }
+        Command::ApplyHunks { file, hunks } => {
+            let n = hunks.len();
+            match worktree::apply_hunks(&st.repo, &file, &hunks).await {
+                Ok(()) => st.store.push_error(format!(
+                    "fleet: applied {n} hunk(s) of {file} to the main checkout"
+                )),
+                Err(e) => st.store.push_error(format!("cherry-pick failed: {e:#}")),
             }
         }
         Command::SetModel {
@@ -147,6 +187,9 @@ pub(crate) fn drop_scope(st: &mut LoopState, slug: &str, sids: &[String], inbox:
     for sid in sids {
         st.store.retire_session(sid);
     }
+    // Fix-2: a removed worktree must not leave a stale blocked mirror
+    // behind (its tasks are gone; retry would find nothing).
+    st.store.clear_blocked_by_slug(slug);
     st.store.remove_worktree(slug);
     st.clients.remove(slug);
     st.pumped.remove(slug);
@@ -299,5 +342,18 @@ mod tests {
         st.store.session_scope.insert("s1".into(), "wt-a".into());
         st.store.session_scope.insert("s2".into(), "wt-b".into());
         assert_eq!(scoped_sessions(&st, "wt-a"), vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn drop_scope_clears_blocked_mirror() {
+        use crate::transcript::TaskId;
+
+        let mut st = empty_state();
+        let id = TaskId::new();
+        st.store.mark_blocked(id, "wt-a");
+        assert!(st.store.is_blocked_slug("wt-a"));
+        drop_scope(&mut st, "wt-a", &[], &FleetInbox::new());
+        assert!(!st.store.is_blocked_slug("wt-a"));
+        assert!(st.store.blocked.is_empty());
     }
 }

@@ -35,12 +35,24 @@ impl TaskSweeper for FleetSweeper {
         self.inner.track_id(task);
     }
 
+    fn track_task_with_limit(&mut self, task: TaskId, limit: u8) {
+        self.inner.track_id_with_limit(task, limit);
+    }
+
+    fn track_task_full(&mut self, task: TaskId, limit: u8, max_runtime_secs: Option<u64>) {
+        self.inner.track_full(task, limit, max_runtime_secs);
+    }
+
     fn untrack_task(&mut self, task: &TaskId) {
         self.inner.untrack(task);
     }
 
     fn note_task_error(&mut self, task: &TaskId) {
         self.inner.note_error(task);
+    }
+
+    fn note_task_success(&mut self, task: &TaskId) {
+        self.inner.note_success(task);
     }
 
     fn sweep(&self) -> Vec<SweepAction> {
@@ -89,5 +101,33 @@ mod tests {
         let mut store = Store::default();
         apply_sweep(&mut store, &[SweepAction::Reclaim(TaskId::new())]);
         assert!(store.errors[0].contains("reclaim"));
+    }
+
+    #[test]
+    fn success_resets_streak_through_adapter() {
+        let mut sw = FleetSweeper::new();
+        let id = TaskId::new();
+        sw.track_task_with_limit(id, 2);
+        sw.note_task_error(&id);
+        sw.note_task_success(&id);
+        sw.note_task_error(&id);
+        assert!(
+            sw.sweep().is_empty(),
+            "error→success→error stays under budget"
+        );
+        sw.note_task_error(&id);
+        assert_eq!(sw.sweep(), vec![SweepAction::Blocked(id)]);
+    }
+
+    #[test]
+    fn full_track_carries_deadline_through_adapter() {
+        // Deadline path needs time travel the adapter cannot inject, so
+        // assert the track call itself is accepted and silent when fresh.
+        let mut sw = FleetSweeper::new();
+        let id = TaskId::new();
+        sw.track_task_full(id, 2, Some(3600));
+        assert!(sw.sweep().is_empty());
+        sw.untrack_task(&id);
+        assert!(sw.sweep().is_empty());
     }
 }

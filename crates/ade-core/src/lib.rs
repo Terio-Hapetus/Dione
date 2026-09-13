@@ -10,7 +10,8 @@ pub use config::AppConfig;
 pub use runtime::{Command, PermissionResponse, RuntimeHandle};
 pub use state::{
     ConnState, DiffNote, MessageEntry, PatchLine, PendingPermission, ProviderInfo, SelectedModel,
-    Store, Totals, event_session_id, format_review_notes, parse_patch_lines,
+    Store, Totals, append_reply, event_session_id, format_review_notes, parse_patch_lines,
+    resolve_range, split_files,
 };
 pub use transcript::{Cost, Role, TaskId, ToolCall, UnifiedMessage};
 pub use worktree::WorktreeStatus;
