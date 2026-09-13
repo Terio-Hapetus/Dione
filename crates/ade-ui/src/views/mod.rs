@@ -4,6 +4,7 @@ pub mod diff;
 pub mod file;
 pub mod permission;
 pub mod right_panel;
+pub mod shell;
 pub mod sidebar;
 pub mod terminal;
 pub mod theme;

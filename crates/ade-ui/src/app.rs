@@ -337,6 +337,7 @@ impl Render for AdeApp {
                     .flex_1()
                     .min_h_0()
                     .flex()
+                    .child(self.render_activity_bar(cx))
                     .child(self.render_sidebar(cx))
                     .child(
                         div()
@@ -356,6 +357,7 @@ impl Render for AdeApp {
                     )
                     .child(self.render_right_panel(cx)),
             )
+            .child(self.render_status_bar(cx))
             .children(pending.map(|p| self.render_permission_overlay(p, cx)))
     }
 }

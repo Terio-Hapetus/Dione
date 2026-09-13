@@ -4,7 +4,7 @@ use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
 };
 
-use super::theme::{bad_color, ok_color, truncate, warn_color};
+use super::theme::{SIDEBAR_W, bad_color, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 /// Dot for a worktree row (pure: unit-tested). Blocked (retry budget
@@ -226,7 +226,7 @@ impl AdeApp {
         }
 
         div()
-            .w(px(220.))
+            .w(px(SIDEBAR_W))
             .flex_none()
             .flex()
             .flex_col()

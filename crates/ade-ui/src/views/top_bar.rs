@@ -4,7 +4,7 @@ use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
 };
 
-use super::theme::{bad_color, muted_color, ok_color, warn_color};
+use super::theme::{TOP_H, bad_color, muted_color, ok_color, warn_color};
 use crate::app::AdeApp;
 
 impl AdeApp {
@@ -35,7 +35,7 @@ impl AdeApp {
         let toggle_term = cx.listener(|this, _: &ClickEvent, _, _| this.toggle_terminal());
 
         div()
-            .h(px(38.))
+            .h(px(TOP_H))
             .flex_none()
             .flex()
             .items_center()

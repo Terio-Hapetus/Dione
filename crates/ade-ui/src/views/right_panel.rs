@@ -2,7 +2,7 @@ use ade_core::{Command, Store};
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{fmt_tok, muted_color, ok_color, truncate, v_center};
+use super::theme::{REVIEW_W, fmt_tok, muted_color, ok_color, truncate, v_center};
 use crate::app::{AdeApp, RightTab};
 
 impl AdeApp {
@@ -55,7 +55,7 @@ impl AdeApp {
         };
 
         div()
-            .w(px(340.))
+            .w(px(REVIEW_W))
             .flex_none()
             .flex()
             .flex_col()
