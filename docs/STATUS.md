@@ -189,7 +189,14 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
 
 ## Next up
 
-1. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
+1. UI/UX overhaul (M8-UX, IDE-style agentic-centered, plan đã chốt):
+   - DONE UX0 (`612caf9`): design tokens + `status_glyph` + `empty_state`
+   - DONE UX1 (`7f01499`): shell 4 vùng + activity rail + status bar
+     (sidebar 264, review 400, topbar 36); Xvfb smoke sạch
+   - Tiếp: UX2 Fleet view (search/filter/row 32px/dialog +wt) →
+     UX3 worktree tabs → UX4 composer single-mode → UX5 review →
+     UX6 palette+keys → UX7 permission/states → UX8 polish
+2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
 2. M6 còn lại: Open-Workspace VM-thread wiring (nối `VmManager` vào UI:
