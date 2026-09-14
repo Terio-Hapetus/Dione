@@ -391,6 +391,7 @@ impl Render for AdeApp {
             .bg(bg)
             .text_color(fg)
             .text_size(px(13.))
+            .child(self.render_titlebar(window, cx))
             .child(self.render_top_bar(cx))
             .child(
                 div()

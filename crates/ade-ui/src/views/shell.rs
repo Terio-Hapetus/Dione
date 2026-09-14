@@ -6,12 +6,26 @@
 //! so no extra state can desync.
 
 use gpui::*;
-use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
+use gpui_component::{ActiveTheme as _, Sizable as _, TitleBar, button::Button, label::Label};
 
 use super::theme::{STATUS_H, TEXT_META, muted_color, status_glyph, truncate};
 use crate::app::{AdeApp, RightTab};
 
 impl AdeApp {
+    /// Custom client-side titlebar (drag strip + min/max/close).
+    /// Rendered only when the compositor negotiates
+    /// `Decorations::Client` (typical Wayland) — server-decorated
+    /// sessions (X11 + WM) keep the native bar, never a doubled one.
+    pub(crate) fn render_titlebar(
+        &self,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let client = matches!(window.window_decorations(), Decorations::Client { .. });
+        div().children(
+            client.then(|| TitleBar::new().child(Label::new("ADE — Agentic IDE".to_string()))),
+        )
+    }
     /// 48px icon rail: Fleet / Review / Terminal.
     pub(crate) fn render_activity_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let to_fleet = cx.listener(|app, _: &ClickEvent, _, cx| {
