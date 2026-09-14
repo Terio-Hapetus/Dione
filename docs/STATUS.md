@@ -214,6 +214,10 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
      empty-state; ade-ui 29 passed; Xvfb sạch
  - M8-UX CLOSED (UX0–UX8 trên main: shell IDE 4 vùng + tab-per-worktree,
    composer single-mode, review gom nút, palette ⌘K, permission phân cấp).
+- DONE W1 (`9da3ea9`): window chrome — custom CSD TitleBar (kéo +
+  min/max/close, chỉ khi Wayland Client-decorations; X11 giữ native
+  bar) + min size 640×480 (verify trong WM hints) + app_id `ade`;
+  Xvfb smoke sạch (title + class + hints).
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
