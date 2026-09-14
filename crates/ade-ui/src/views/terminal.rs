@@ -243,11 +243,13 @@ impl AdeApp {
 }
 
 /// Substring filter for scrollback search. Empty query shows everything.
+/// Case-insensitive (UX8): terminal output case is rarely what you remember.
 pub(crate) fn filter_lines(lines: impl Iterator<Item = String>, query: &str) -> Vec<String> {
     if query.is_empty() {
         return lines.collect();
     }
-    lines.filter(|l| l.contains(query)).collect()
+    let q = query.to_lowercase();
+    lines.filter(|l| l.to_lowercase().contains(&q)).collect()
 }
 
 #[cfg(test)]
@@ -300,5 +302,14 @@ mod tests {
             vec!["foo".to_string(), "foobar".to_string()]
         );
         assert!(filter_lines(lines.into_iter(), "zzz").is_empty());
+    }
+
+    #[test]
+    fn filter_ignores_case() {
+        let lines = vec!["Error: boom".to_string(), "ok".to_string()];
+        assert_eq!(
+            filter_lines(lines.into_iter(), "error"),
+            vec!["Error: boom".to_string()]
+        );
     }
 }

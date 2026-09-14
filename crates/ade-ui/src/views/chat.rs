@@ -2,7 +2,7 @@ use ade_core::{Role, UnifiedMessage};
 use gpui::*;
 use gpui_component::{label::Label, text::TextView};
 
-use super::theme::{muted_color, ok_color, soft_border, truncate, v_center};
+use super::theme::{empty_state, fmt_money, muted_color, ok_color, soft_border, truncate};
 use crate::app::AdeApp;
 
 impl AdeApp {
@@ -10,11 +10,19 @@ impl AdeApp {
     /// no opencode wire types.
     pub(crate) fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let Some(sid) = self.store.active_session.clone() else {
-            return v_center("Create a session in the sidebar to begin.");
+            return empty_state(
+                "💬",
+                "No active session",
+                "Create one in the sidebar Fleet view",
+            );
         };
         let msgs: Vec<UnifiedMessage> = self.store.transcript_for_session(&sid).to_vec();
         if msgs.is_empty() {
-            return v_center("No unified messages yet — say something below.");
+            return empty_state(
+                "💬",
+                "No messages yet",
+                "Say something below to start the agent",
+            );
         }
         let mut rows: Vec<AnyElement> = Vec::new();
         if let Some(cost) = self
@@ -24,10 +32,14 @@ impl AdeApp {
             .and_then(|t| self.store.costs.get(t))
         {
             rows.push(
-                Label::new(format!("{} messages · ${:.4}", msgs.len(), cost.cost))
-                    .text_size(px(11.))
-                    .text_color(muted_color())
-                    .into_any_element(),
+                Label::new(format!(
+                    "{} messages · {}",
+                    msgs.len(),
+                    fmt_money(cost.cost)
+                ))
+                .text_size(px(11.))
+                .text_color(muted_color())
+                .into_any_element(),
             );
         }
         for m in &msgs {

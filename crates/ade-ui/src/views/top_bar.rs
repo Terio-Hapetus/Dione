@@ -4,7 +4,7 @@ use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
 };
 
-use super::theme::{TOP_H, bad_color, muted_color, ok_color, warn_color};
+use super::theme::{TOP_H, bad_color, fmt_money, muted_color, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 impl AdeApp {
@@ -18,17 +18,14 @@ impl AdeApp {
         let border = cx.theme().border;
 
         let models = self.flat_models();
-        let current = self.model_label(&models);
+        let current = truncate(&self.model_label(&models), 28);
         let n = models.len();
-        let next = cx.listener(move |this, _: &ClickEvent, _, _| {
+        // Single cycling button (UX8): the old `<`/`>` pair was tiny and
+        // undiscoverable; backward cycle wasn't worth two targets.
+        let cycle = cx.listener(move |this, _: &ClickEvent, _, _| {
             if n > 0 {
                 let ix = this.model_ix.map(|i| (i + 1) % n).unwrap_or(0);
                 this.pick_model(ix);
-            }
-        });
-        let prev = cx.listener(move |this, _: &ClickEvent, _, _| {
-            if n > 0 {
-                this.pick_model(this.model_ix.map(|i| (i + n - 1) % n).unwrap_or(n - 1));
             }
         });
         let term_label = if self.show_terminal { "Chat" } else { "Term" };
@@ -51,19 +48,11 @@ impl AdeApp {
             .child(Label::new(status_text).text_color(muted_color()))
             .child(div().w(px(1.)).h(px(16.)).bg(border))
             .child(
-                Button::new("model-prev")
-                    .label("<")
+                Button::new("model-cycle")
+                    .label(current)
                     .xsmall()
                     .compact()
-                    .on_click(prev),
-            )
-            .child(Label::new(current))
-            .child(
-                Button::new("model-next")
-                    .label(">")
-                    .xsmall()
-                    .compact()
-                    .on_click(next),
+                    .on_click(cycle),
             )
             .child(self.render_agent_ticks())
             .child(
@@ -83,9 +72,9 @@ impl AdeApp {
             .child(div().flex_1())
             .child(
                 Label::new(format!(
-                    "ctx≈{:.1}k tok · ${:.4}",
+                    "ctx≈{:.1}k tok · {}",
                     t.total_context() / 1000.0,
-                    t.cost
+                    fmt_money(t.cost)
                 ))
                 .text_color(muted_color()),
             )

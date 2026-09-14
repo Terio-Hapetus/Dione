@@ -87,6 +87,16 @@ pub(crate) fn fmt_tok(n: f64) -> String {
     }
 }
 
+/// Usage money: 4 decimals while under a cent (default view), else 2.
+/// Pure, unit-tested — replaces the always-4-decimals `$0.0000` noise.
+pub(crate) fn fmt_money(cost: f64) -> String {
+    if cost < 0.01 {
+        format!("${cost:.4}")
+    } else {
+        format!("${cost:.2}")
+    }
+}
+
 pub(crate) fn v_center(text: &str) -> AnyElement {
     empty_state("…", text, "")
 }
@@ -117,6 +127,12 @@ pub(crate) fn empty_state(icon: &str, title: &str, hint: &str) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use crate::views::theme::{is_truncated, status_glyph, truncate};
+
+    #[test]
+    fn money_keeps_precision_only_when_small() {
+        assert_eq!(super::fmt_money(0.000_01), "$0.0000");
+        assert_eq!(super::fmt_money(1.235), "$1.24");
+    }
 
     // Compile-time guards (giữ ở const để clippy không báo constant-assert).
     const _: () = assert!(super::ROW_H >= 28.0);

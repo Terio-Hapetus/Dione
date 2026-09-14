@@ -2,7 +2,7 @@ use ade_vm::VmState;
 use gpui::*;
 use gpui_component::{Sizable as _, label::Label};
 
-use super::theme::{bad_color, muted_color, ok_color, warn_color};
+use super::theme::{TEXT_META, bad_color, muted_color, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 /// Short text for a VM lifecycle state (pure: unit-tested).
@@ -60,6 +60,9 @@ impl AdeApp {
         {
             label.push_str(&format!(" {}@{}:{}", ssh.user, ssh.host, ssh.port));
         }
+        // The 264px Fleet row can't fit long endpoints — cap the badge.
+        // Full endpoint stays one click away via the SSH tab (W3).
+        let label = truncate(&label, 28);
         Some(
             div()
                 .flex()
@@ -67,7 +70,7 @@ impl AdeApp {
                 .gap_1()
                 .child(
                     Label::new(label)
-                        .text_size(px(10.))
+                        .text_size(px(TEXT_META))
                         .text_color(muted_color()),
                 )
                 .child(
