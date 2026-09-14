@@ -2,6 +2,7 @@ pub mod chat;
 pub mod composer;
 pub mod diff;
 pub mod file;
+pub mod palette;
 pub mod permission;
 pub mod right_panel;
 pub mod shell;

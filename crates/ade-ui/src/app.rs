@@ -73,6 +73,9 @@ pub struct AdeApp {
     pub(crate) fleet_input: Entity<InputState>,
     /// Attention filter: only blocked / needs-you / working worktrees.
     pub(crate) fleet_attention_only: bool,
+    /// Command palette (UX6): open flag + filter input.
+    pub(crate) show_palette: bool,
+    pub(crate) palette_input: Entity<InputState>,
     /// VM manager background thread (W2). UI sends Ensure/Stop, drains
     /// reports in the snapshot loop — never blocks.
     pub(crate) vm: VmThread,
@@ -146,6 +149,17 @@ impl AdeApp {
         cx.subscribe_in(&fleet_input, window, |this, _, ev, window, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
                 this.create_worktree_from_dialog(window, cx);
+            }
+        })
+        .detach();
+        let palette_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("type a command or worktree… (Enter runs first)")
+                .auto_grow(1, 1)
+        });
+        cx.subscribe_in(&palette_input, window, |this, _, ev, window, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. }) {
+                this.run_palette_first(window, cx);
             }
         })
         .detach();
@@ -231,6 +245,8 @@ impl AdeApp {
             show_wt_dialog: false,
             fleet_input,
             fleet_attention_only: false,
+            show_palette: false,
+            palette_input,
             pending_shell: None,
             term_pending: false,
         }
@@ -402,5 +418,6 @@ impl Render for AdeApp {
             )
             .child(self.render_status_bar(cx))
             .children(pending.map(|p| self.render_permission_overlay(p, cx)))
+            .children(self.show_palette.then(|| self.render_palette(cx)))
     }
 }

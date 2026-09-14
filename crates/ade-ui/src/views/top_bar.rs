@@ -33,6 +33,10 @@ impl AdeApp {
         });
         let term_label = if self.show_terminal { "Chat" } else { "Term" };
         let toggle_term = cx.listener(|this, _: &ClickEvent, _, _| this.toggle_terminal());
+        let open_palette = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.show_palette = true;
+            cx.notify();
+        });
 
         div()
             .h(px(TOP_H))
@@ -68,6 +72,13 @@ impl AdeApp {
                     .xsmall()
                     .compact()
                     .on_click(toggle_term),
+            )
+            .child(
+                Button::new("palette-open")
+                    .label("⌘K")
+                    .xsmall()
+                    .compact()
+                    .on_click(open_palette),
             )
             .child(div().flex_1())
             .child(
