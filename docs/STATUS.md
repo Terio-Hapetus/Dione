@@ -203,7 +203,10 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
    - DONE UX5 (`c149680`): review gom nút 2 hàng (Merge primary, còn
      lại outline) + gutter số dòng + notice cắt ngắn + xóa Inspector;
      Xvfb sạch
-   - Tiếp: UX6 palette+keys → UX7 permission/states → UX8 polish
+   - DONE UX6 (`43b4bd5`): palette ⌘K (go/review/fleet/view, filter
+     case-insensitive, Enter chạy match đầu, overlay); global keymap
+     để sau (cần GPUI keymap pass riêng); Xvfb sạch
+   - Tiếp: UX7 permission/states → UX8 polish
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
