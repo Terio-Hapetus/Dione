@@ -378,6 +378,8 @@ impl Render for AdeApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let bg = cx.theme().background;
         let fg = cx.theme().foreground;
+        // Permission queue: overlay the first, badge the depth (UX7).
+        let queue = self.store.pending_permissions.len();
         let pending = self.store.pending_permissions.values().next().cloned();
 
         div()
@@ -417,7 +419,7 @@ impl Render for AdeApp {
                     .child(self.render_right_panel(cx)),
             )
             .child(self.render_status_bar(cx))
-            .children(pending.map(|p| self.render_permission_overlay(p, cx)))
+            .children(pending.map(|p| self.render_permission_overlay(p, queue, cx)))
             .children(self.show_palette.then(|| self.render_palette(cx)))
     }
 }
