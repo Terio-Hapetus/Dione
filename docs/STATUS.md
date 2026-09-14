@@ -209,7 +209,11 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
    - DONE UX7 (`23360a5`): permission phân cấp (Allow primary, còn lại
      outline, Reject tách cuối) + queue `1 of N` + full command 12px;
      vẫn blocking (chưa có defer path); Xvfb sạch
-   - Tiếp: UX8 polish
+   - DONE UX8 (`cad3420`): polish cuối — `fmt_money`, model 1 nút cycle,
+     vm_badge 11px + cap 28, terminal filter case-insensitive, chat
+     empty-state; ade-ui 29 passed; Xvfb sạch
+ - M8-UX CLOSED (UX0–UX8 trên main: shell IDE 4 vùng + tab-per-worktree,
+   composer single-mode, review gom nút, palette ⌘K, permission phân cấp).
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
