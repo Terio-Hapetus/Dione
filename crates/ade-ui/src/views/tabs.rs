@@ -9,12 +9,13 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
 use super::sidebar::fleet_rank;
-use super::theme::{TEXT_SECONDARY, muted_color, status_glyph};
+use super::theme::{TEXT_SECONDARY, muted_for, status_glyph};
 use crate::app::AdeApp;
 
 impl AdeApp {
     /// Tab bar pinned above the chat/terminal column (UX3).
     pub(crate) fn render_worktree_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let mut row = div()
             .id("wt-tabs")
             .flex_none()
@@ -78,7 +79,7 @@ impl AdeApp {
         row.child(
             Label::new(format!("{} chats", self.store.sessions.len()))
                 .text_size(px(TEXT_SECONDARY))
-                .text_color(muted_color()),
+                .text_color(muted_for(dark)),
         )
     }
 }

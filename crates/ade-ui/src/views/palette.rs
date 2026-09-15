@@ -12,7 +12,7 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, input::Input, label::Label};
 
 use super::sidebar::fleet_rank;
-use super::theme::{TEXT_META, empty_state, muted_color};
+use super::theme::{TEXT_META, empty_state, muted_for};
 use crate::app::{AdeApp, RightTab};
 
 /// A runnable palette entry. Labels carry the matching text; `hint`
@@ -191,6 +191,7 @@ impl AdeApp {
 
     /// Centered overlay: input + up to 12 matches + backdrop-click close.
     pub(crate) fn render_palette(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let query = self.palette_input.read(cx).value().to_string();
         let items = self.palette_items();
         let matched = palette_match(&query, &items, 12);
@@ -200,6 +201,7 @@ impl AdeApp {
                 "○",
                 "No match",
                 "try a worktree name or action",
+                dark,
             ));
         }
         for it in matched {
@@ -222,7 +224,7 @@ impl AdeApp {
                     .child(
                         Label::new(it.hint.clone())
                             .text_size(px(TEXT_META))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     ),
             );
         }
@@ -263,7 +265,7 @@ impl AdeApp {
                         .child(
                             Label::new("type to filter · Enter runs first · click × to close")
                                 .text_size(px(TEXT_META))
-                                .text_color(muted_color()),
+                                .text_color(muted_for(dark)),
                         )
                         .child(list)
                         .child(

@@ -8,7 +8,7 @@
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, TitleBar, button::Button, label::Label};
 
-use super::theme::{STATUS_H, TEXT_META, muted_color, status_glyph, truncate};
+use super::theme::{STATUS_H, TEXT_META, muted_for, soft_border_for, status_glyph, truncate};
 use crate::app::{AdeApp, RightTab};
 
 impl AdeApp {
@@ -80,7 +80,8 @@ impl AdeApp {
     /// Read-only — retry lives in the sidebar row / error strip (M7b).
     /// Fleet glyph summarizes the worst state (blocked > needs-you >
     /// working), same priority as the sidebar dots.
-    pub(crate) fn render_status_bar(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let mode = if self.vm_available {
             "host"
         } else {
@@ -119,16 +120,16 @@ impl AdeApp {
             .justify_between()
             .px_3()
             .border_t_1()
-            .border_color(super::theme::soft_border())
+            .border_color(soft_border_for(dark))
             .child(
                 Label::new(left)
                     .text_size(px(TEXT_META))
-                    .text_color(muted_color()),
+                    .text_color(muted_for(dark)),
             )
             .child(
                 Label::new(right)
                     .text_size(px(TEXT_META))
-                    .text_color(muted_color()),
+                    .text_color(muted_for(dark)),
             )
     }
 }

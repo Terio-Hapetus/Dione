@@ -2,7 +2,7 @@ use ade_vm::VmState;
 use gpui::*;
 use gpui_component::{Sizable as _, label::Label};
 
-use super::theme::{TEXT_META, bad_color, muted_color, ok_color, truncate, warn_color};
+use super::theme::{TEXT_META, bad_color, muted_for, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 /// Short text for a VM lifecycle state (pure: unit-tested).
@@ -51,7 +51,7 @@ impl AdeApp {
 
     /// Fleet-row suffix for a workspace VM state, if tracked.
     /// Ready/Running rows also show the SSH endpoint for manual access.
-    pub(crate) fn vm_badge(&self, slug: &str) -> Option<AnyElement> {
+    pub(crate) fn vm_badge(&self, slug: &str, dark: bool) -> Option<AnyElement> {
         let state = self.vm_states.get(slug)?;
         let dot = vm_dot(state)?;
         let mut label = format!("vm:{}", vm_label(state));
@@ -71,7 +71,7 @@ impl AdeApp {
                 .child(
                     Label::new(label)
                         .text_size(px(TEXT_META))
-                        .text_color(muted_color()),
+                        .text_color(muted_for(dark)),
                 )
                 .child(
                     gpui_component::Icon::new(gpui_component::IconName::CircleCheck)

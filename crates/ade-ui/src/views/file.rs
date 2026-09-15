@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 
 use ade_core::Store;
 use gpui::*;
-use gpui_component::{Sizable as _, button::Button, label::Label};
+use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{muted_color, truncate, v_center, warn_color};
+use super::theme::{empty_state, muted_for, truncate, warn_color};
 use crate::app::AdeApp;
 use crate::vm_thread::workspace_root;
 
@@ -124,8 +124,9 @@ pub(crate) fn open_path(store: &Store, scope: &str, relpath: &str) -> OpenFile {
 
 impl AdeApp {
     pub(crate) fn render_file(&self, cx: &mut Context<Self>) -> AnyElement {
+        let dark = cx.theme().is_dark();
         let Some(f) = self.open_file.as_ref() else {
-            return v_center("Click a file name in a diff to view it.");
+            return empty_state("🗎", "No file open", "click a file name in a diff", dark);
         };
         let close = cx.listener(move |app, _: &ClickEvent, _, cx| {
             app.open_file = None;
@@ -169,7 +170,7 @@ impl AdeApp {
                     format!("{} line(s)", f.content.lines().count())
                 })
                 .text_size(px(10.))
-                .text_color(muted_color()),
+                .text_color(muted_for(dark)),
             );
         for (i, line) in f.content.lines().enumerate() {
             col = col.child(
@@ -179,7 +180,7 @@ impl AdeApp {
                     .child(
                         Label::new(format!("{:>4}", i + 1))
                             .text_size(px(11.))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     )
                     .child(Label::new(truncate(line, 240)).text_size(px(11.))),
             );

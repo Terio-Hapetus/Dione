@@ -1,8 +1,8 @@
 use ade_core::{Command, DiffNote, parse_patch_lines, split_files, worktree::split_hunks};
 use gpui::*;
-use gpui_component::{Sizable as _, button::Button, label::Label};
+use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{bad_color, muted_color, ok_color, truncate, v_center, warn_color};
+use super::theme::{bad_color, empty_state, muted_for, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 #[derive(serde::Deserialize)]
@@ -69,6 +69,7 @@ impl AdeApp {
         d: &FileDiffRow,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let name = d.file.clone().unwrap_or_else(|| "(unknown)".into());
         let title = format!(
             "{name}  +{} −{}",
@@ -116,7 +117,7 @@ impl AdeApp {
                 } else if pl.text.starts_with("@@") {
                     rgba(0xb18cf0ff)
                 } else {
-                    muted_color()
+                    muted_for(dark)
                 };
                 if pl.text.starts_with("@@") {
                     hunk_idx = Some(hunk_idx.map_or(0, |i| i + 1));
@@ -128,7 +129,7 @@ impl AdeApp {
                         div().w(px(36.)).flex_none().child(
                             Label::new(format!("{n}"))
                                 .text_size(px(11.))
-                                .text_color(muted_color()),
+                                .text_color(muted_for(dark)),
                         ),
                     ),
                     None => div().flex().gap_2(),
@@ -200,7 +201,7 @@ impl AdeApp {
                         total - 400
                     ))
                     .text_size(px(11.))
-                    .text_color(muted_color()),
+                    .text_color(muted_for(dark)),
                 );
             }
             block = block.child(lines);
@@ -316,7 +317,7 @@ impl AdeApp {
                     div().pl_6().child(
                         Label::new(format!("↳ {}", truncate(r, 120)))
                             .text_size(px(11.))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     ),
                 );
             }
@@ -326,8 +327,9 @@ impl AdeApp {
     }
 
     pub(crate) fn render_diff(&self, cx: &mut Context<Self>) -> AnyElement {
+        let dark = cx.theme().is_dark();
         if self.store.diffs.is_empty() {
-            return v_center("No diffs yet — press ↻ all to fetch.");
+            return empty_state("Δ", "No diffs yet", "press ↻ all to fetch", dark);
         }
         // Group sessions with diffs by scope, longest-waiting first (M8b
         // fair queue: the main scope competes on equal terms).
@@ -443,7 +445,7 @@ impl AdeApp {
                 let mut head = div().flex().items_center().justify_between().child(
                     Label::new(session_label)
                         .text_size(px(11.))
-                        .text_color(muted_color()),
+                        .text_color(muted_for(dark)),
                 );
                 if !notes.is_empty() {
                     let send_sid = sid.clone();
@@ -476,7 +478,7 @@ impl AdeApp {
                 section = section.child(
                     Label::new(format!("{} file(s) — click a line to annotate", rows.len()))
                         .text_size(px(11.))
-                        .text_color(muted_color()),
+                        .text_color(muted_for(dark)),
                 );
                 for (fi, d) in rows.iter().enumerate() {
                     section = section.child(self.file_diff_block(&sid, fi, d, cx));

@@ -5,8 +5,8 @@ use gpui_component::{
 };
 
 use super::theme::{
-    ROW_H, SIDEBAR_W, TEXT_META, TEXT_SECONDARY, bad_color, empty_state, muted_color, ok_color,
-    status_glyph, truncate, warn_color,
+    ROW_H, SIDEBAR_W, TEXT_META, TEXT_SECONDARY, active_bg, bad_color, empty_state, muted_for,
+    ok_color, status_glyph, truncate, warn_color,
 };
 use crate::app::AdeApp;
 
@@ -73,11 +73,12 @@ impl AdeApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let active = self.store.active_session.as_deref() == Some(id);
+        let dark = cx.theme().is_dark();
         let dot = self.session_dot(id);
         let row_id = SharedString::from(format!("ses-row-{id}"));
         let select_id = id.to_string();
         let bg: Hsla = if active {
-            rgba(0x2a3044ff).into()
+            active_bg(dark).into()
         } else {
             Hsla::transparent_black()
         };
@@ -103,6 +104,7 @@ impl AdeApp {
     }
 
     pub(crate) fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let new_session = cx.listener(|this, _: &ClickEvent, _, _| {
             this.rt.send(Command::CreateSession {
                 title: String::new(),
@@ -149,7 +151,7 @@ impl AdeApp {
                     .child(
                         Label::new("New worktree — 1 task = 1 worktree")
                             .text_size(px(TEXT_META))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     )
                     .child(Input::new(&self.fleet_input))
                     .child(
@@ -197,7 +199,7 @@ impl AdeApp {
                 blocked,
                 status == WorktreeStatus::Done,
             );
-            let color = self.worktree_dot(&slug).unwrap_or_else(muted_color);
+            let color = self.worktree_dot(&slug).unwrap_or_else(|| muted_for(dark));
             let select_slug = slug.clone();
             let select = cx.listener(move |this, _: &ClickEvent, _, _| {
                 this.rt.send(Command::SelectWorktree {
@@ -220,7 +222,7 @@ impl AdeApp {
                 }
             });
             let bg: Hsla = if active {
-                rgba(0x2a3044ff).into()
+                active_bg(dark).into()
             } else {
                 Hsla::transparent_black()
             };
@@ -243,7 +245,7 @@ impl AdeApp {
                             .gap_1()
                             .child(Label::new(glyph).text_color(color))
                             .child(Label::new(format!("⑂ {slug}")).text_size(px(TEXT_SECONDARY)))
-                            .children(self.vm_badge(&slug)),
+                            .children(self.vm_badge(&slug, dark)),
                     )
                     .child(
                         div()
@@ -311,6 +313,7 @@ impl AdeApp {
                 } else {
                     "Press + wt to open your first task"
                 },
+                dark,
             ));
         }
 

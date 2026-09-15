@@ -4,11 +4,12 @@ use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
 };
 
-use super::theme::{TOP_H, bad_color, fmt_money, muted_color, ok_color, truncate, warn_color};
+use super::theme::{TOP_H, bad_color, fmt_money, muted_for, ok_color, truncate, warn_color};
 use crate::app::AdeApp;
 
 impl AdeApp {
     pub(crate) fn render_top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let (dot, status_text) = match &self.store.conn {
             ConnState::Connected => (ok_color(), "connected"),
             ConnState::Connecting => (warn_color(), "connecting…"),
@@ -45,7 +46,7 @@ impl AdeApp {
             .border_b_1()
             .border_color(border)
             .child(Icon::new(IconName::CircleCheck).small().text_color(dot))
-            .child(Label::new(status_text).text_color(muted_color()))
+            .child(Label::new(status_text).text_color(muted_for(dark)))
             .child(div().w(px(1.)).h(px(16.)).bg(border))
             .child(
                 Button::new("model-cycle")
@@ -54,7 +55,7 @@ impl AdeApp {
                     .compact()
                     .on_click(cycle),
             )
-            .child(self.render_agent_ticks())
+            .child(self.render_agent_ticks(dark))
             .child(
                 Button::new("term-toggle")
                     .label(term_label)
@@ -76,17 +77,17 @@ impl AdeApp {
                     t.total_context() / 1000.0,
                     fmt_money(t.cost)
                 ))
-                .text_color(muted_color()),
+                .text_color(muted_for(dark)),
             )
     }
 
     /// Agent picker ticks (Lab 4): `name ●` present, `name ○` missing.
     /// Empty registry renders nothing.
-    pub(crate) fn render_agent_ticks(&self) -> impl IntoElement {
+    pub(crate) fn render_agent_ticks(&self, dark: bool) -> impl IntoElement {
         let mut row = div().flex().items_center().gap_1();
         for name in &self.agent_names {
             let ok = self.agent_ok.get(name).copied().unwrap_or(false);
-            let dot = if ok { ok_color() } else { muted_color() };
+            let dot = if ok { ok_color() } else { muted_for(dark) };
             row = row.child(
                 Label::new(format!("{} {}", name, if ok { "●" } else { "○" }))
                     .text_size(px(11.))

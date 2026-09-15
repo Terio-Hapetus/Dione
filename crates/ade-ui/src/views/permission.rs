@@ -11,9 +11,9 @@
 
 use ade_core::{Command, PermissionResponse};
 use gpui::*;
-use gpui_component::{Sizable as _, button::Button, label::Label};
+use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{TEXT_META, TEXT_SECONDARY, muted_color, warn_color};
+use super::theme::{TEXT_META, TEXT_SECONDARY, card_bg, muted_for, warn_color};
 use crate::app::AdeApp;
 
 impl AdeApp {
@@ -23,6 +23,7 @@ impl AdeApp {
         queue: usize,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let dark = cx.theme().is_dark();
         let once_pid = p.permission_id.clone();
         let always_pid = p.permission_id.clone();
         let reject_pid = p.permission_id.clone();
@@ -70,7 +71,7 @@ impl AdeApp {
                     .rounded_lg()
                     .border_1()
                     .border_color(warn_color())
-                    .bg(rgb(0x1d2029))
+                    .bg(card_bg(dark))
                     .p_4()
                     .flex()
                     .flex_col()
@@ -80,17 +81,17 @@ impl AdeApp {
                     .children(command.map(|c| {
                         Label::new(c)
                             .text_size(px(TEXT_SECONDARY))
-                            .text_color(muted_color())
+                            .text_color(muted_for(dark))
                     }))
                     .children((!p.patterns.is_empty()).then(|| {
                         Label::new(p.patterns.join(", "))
                             .text_size(px(TEXT_SECONDARY))
-                            .text_color(muted_color())
+                            .text_color(muted_for(dark))
                     }))
                     .child(
                         Label::new("The agent waits until you decide.")
                             .text_size(px(TEXT_META))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     )
                     .child(
                         div()

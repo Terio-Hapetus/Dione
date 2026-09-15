@@ -23,6 +23,7 @@ pub(crate) const TEXT_BASE: f32 = 13.0;
 pub(crate) const TEXT_SECONDARY: f32 = 12.0;
 pub(crate) const TEXT_META: f32 = 11.0;
 
+// ── Signal colors: identical in both modes (readable on light + dark) ──
 pub(crate) fn ok_color() -> Rgba {
     rgba(0x3fd17cff)
 }
@@ -32,16 +33,52 @@ pub(crate) fn bad_color() -> Rgba {
 pub(crate) fn warn_color() -> Rgba {
     rgba(0xf5c542ff)
 }
-pub(crate) fn muted_color() -> Rgba {
-    rgba(0x8b8b93ff)
-}
-pub(crate) fn soft_border() -> Rgba {
-    rgba(0x33363fff)
-}
 /// Accent duy nhất cho action chính (Send, Merge winner). Staged cho UX4/UX5.
 #[allow(dead_code)]
 pub(crate) fn accent_color() -> Rgba {
     rgba(0x5eb1f0ff)
+}
+
+// ── Surface colors: mode-aware (T1). Dark branches keep the exact
+// legacy constants (locked by tests); light branches are neutral grays. ──
+/// Muted text — light mode needs a darker gray for contrast.
+pub(crate) fn muted_for(dark: bool) -> Rgba {
+    if dark {
+        rgba(0x8b8b93ff)
+    } else {
+        rgba(0x5f6368ff)
+    }
+}
+pub(crate) fn soft_border_for(dark: bool) -> Rgba {
+    if dark {
+        rgba(0x33363fff)
+    } else {
+        rgba(0xdfe1e6ff)
+    }
+}
+/// Selected-row background.
+pub(crate) fn active_bg(dark: bool) -> Rgba {
+    if dark {
+        rgba(0x2a3044ff)
+    } else {
+        rgba(0xe8edf5ff)
+    }
+}
+/// User chat bubble.
+pub(crate) fn bubble_bg(dark: bool) -> Rgba {
+    if dark {
+        rgba(0x242838ff)
+    } else {
+        rgba(0xeef1f6ff)
+    }
+}
+/// Floating cards (permission gate).
+pub(crate) fn card_bg(dark: bool) -> Rgba {
+    if dark {
+        rgba(0x1d2029ff)
+    } else {
+        rgba(0xffffffff)
+    }
 }
 
 /// Glyph trạng thái dạng text — luôn đi kèm chữ, không chỉ màu
@@ -97,13 +134,9 @@ pub(crate) fn fmt_money(cost: f64) -> String {
     }
 }
 
-pub(crate) fn v_center(text: &str) -> AnyElement {
-    empty_state("…", text, "")
-}
-
-/// Empty-state 3 phần (icon + title + hint) thay cho `v_center` câm.
-/// `action` để caller gắn nút riêng (không ép vào helper để giữ pure layout).
-pub(crate) fn empty_state(icon: &str, title: &str, hint: &str) -> AnyElement {
+/// Empty-state 3 phần (icon + title + hint) thay cho text đơn câm.
+/// `dark` để hint đủ tương phản cả 2 mode.
+pub(crate) fn empty_state(icon: &str, title: &str, hint: &str, dark: bool) -> AnyElement {
     use gpui::*;
     let mut col = div()
         .size_full()
@@ -118,7 +151,7 @@ pub(crate) fn empty_state(icon: &str, title: &str, hint: &str) -> AnyElement {
         col = col.child(
             Label::new(hint.to_string())
                 .text_size(px(TEXT_META))
-                .text_color(muted_color()),
+                .text_color(muted_for(dark)),
         );
     }
     col.into_any_element()
@@ -132,6 +165,28 @@ mod tests {
     fn money_keeps_precision_only_when_small() {
         assert_eq!(super::fmt_money(0.000_01), "$0.0000");
         assert_eq!(super::fmt_money(1.235), "$1.24");
+    }
+
+    #[test]
+    fn dark_surfaces_keep_legacy_constants() {
+        use gpui::rgba;
+
+        use crate::views::theme::{active_bg, bubble_bg, card_bg, muted_for, soft_border_for};
+        assert_eq!(muted_for(true), rgba(0x8b8b93ff));
+        assert_eq!(soft_border_for(true), rgba(0x33363fff));
+        assert_eq!(active_bg(true), rgba(0x2a3044ff));
+        assert_eq!(bubble_bg(true), rgba(0x242838ff));
+        assert_eq!(card_bg(true), rgba(0x1d2029ff));
+    }
+
+    #[test]
+    fn light_surfaces_differ_for_contrast() {
+        use crate::views::theme::{active_bg, bubble_bg, card_bg, muted_for, soft_border_for};
+        assert_ne!(muted_for(false), muted_for(true));
+        assert_ne!(soft_border_for(false), soft_border_for(true));
+        assert_ne!(active_bg(false), active_bg(true));
+        assert_ne!(bubble_bg(false), bubble_bg(true));
+        assert_ne!(card_bg(false), card_bg(true));
     }
 
     // Compile-time guards (giữ ở const để clippy không báo constant-assert).

@@ -14,7 +14,7 @@ use ade_workspace::strip_ansi;
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, input::Input, label::Label};
 
-use super::theme::muted_color;
+use super::theme::muted_for;
 use crate::app::AdeApp;
 
 /// Scrollback cap: oldest lines drop past this.
@@ -181,6 +181,7 @@ impl AdeApp {
     }
 
     pub(crate) fn render_terminal(&self, cx: &mut Context<Self>) -> AnyElement {
+        let dark = cx.theme().is_dark();
         let Some(term) = self.term.as_ref() else {
             let msg = if self.term_pending {
                 "connecting to guest…"
@@ -191,7 +192,7 @@ impl AdeApp {
                 .flex_1()
                 .items_center()
                 .justify_center()
-                .child(Label::new(msg).text_color(muted_color()))
+                .child(Label::new(msg).text_color(muted_for(dark)))
                 .into_any_element();
         };
         let send = cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -233,7 +234,7 @@ impl AdeApp {
                     .child(
                         Label::new(count)
                             .text_size(px(11.))
-                            .text_color(muted_color()),
+                            .text_color(muted_for(dark)),
                     )
                     .child(div().flex_1().min_w_0().child(Input::new(&self.term_input)))
                     .child(Button::new("term-send").label("⏎").small().on_click(send)),

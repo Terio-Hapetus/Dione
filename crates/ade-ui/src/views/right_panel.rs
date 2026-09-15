@@ -2,7 +2,7 @@ use ade_core::{Command, Store};
 use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
-use super::theme::{REVIEW_W, fmt_tok, muted_color, ok_color, truncate};
+use super::theme::{REVIEW_W, fmt_tok, muted_for, ok_color, truncate};
 use crate::app::{AdeApp, RightTab};
 
 impl AdeApp {
@@ -73,6 +73,7 @@ impl AdeApp {
 
 pub(crate) fn context_view(store: &Store, cx: &mut Context<AdeApp>) -> AnyElement {
     use ade_core::context::{SectionKind, compile};
+    let dark = cx.theme().is_dark();
     let view = compile(store);
     let border = cx.theme().border;
 
@@ -90,9 +91,9 @@ pub(crate) fn context_view(store: &Store, cx: &mut Context<AdeApp>) -> AnyElemen
             SectionKind::System => rgba(0xb18cf0ff),
             SectionKind::User => rgba(0x5eb1f0ff),
             SectionKind::Assistant => ok_color(),
-            SectionKind::Reasoning => muted_color(),
+            SectionKind::Reasoning => muted_for(dark),
             SectionKind::ToolCall => super::theme::warn_color(),
-            SectionKind::Other => muted_color(),
+            SectionKind::Other => muted_for(dark),
         };
         col = col.child(
             div()
@@ -112,13 +113,13 @@ pub(crate) fn context_view(store: &Store, cx: &mut Context<AdeApp>) -> AnyElemen
                         .child(
                             Label::new(fmt_tok(s.est_tokens as f64))
                                 .text_size(px(10.))
-                                .text_color(muted_color()),
+                                .text_color(muted_for(dark)),
                         ),
                 )
                 .children((!s.detail.is_empty()).then(|| {
                     Label::new(truncate(&s.detail, 260))
                         .text_size(px(11.))
-                        .text_color(muted_color())
+                        .text_color(muted_for(dark))
                 })),
         );
     }
