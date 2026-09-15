@@ -2,7 +2,10 @@ mod app;
 mod views;
 mod vm_thread;
 
-use gpui::{AnyView, AppContext as _, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui::{
+    AnyView, AppContext as _, Application, Bounds, WindowBounds, WindowDecorations, WindowOptions,
+    px, size,
+};
 
 fn main() {
     std::panic::set_hook(Box::new(|info| {
@@ -28,6 +31,13 @@ fn main() {
                 // `Decorations::Client` (typical Wayland). Server-decorated
                 // sessions (X11 + WM) keep the native bar instead.
                 titlebar: Some(titlebar),
+                // Request client-side decorations explicitly (B2): leaving
+                // this None makes GPUI request Server, which strands
+                // compositors that neither flip to Client nor draw SSD —
+                // a chromeless window. Client request makes our TitleBar
+                // deterministic; SSD-forcing compositors (KDE) and
+                // compositor-less X11 still fall back to native bars.
+                window_decorations: Some(WindowDecorations::Client),
                 is_movable: true,
                 is_resizable: true,
                 is_minimizable: true,
