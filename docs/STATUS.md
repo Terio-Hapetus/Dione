@@ -218,6 +218,11 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
   min/max/close, chỉ khi Wayland Client-decorations; X11 giữ native
   bar) + min size 640×480 (verify trong WM hints) + app_id `ade`;
   Xvfb smoke sạch (title + class + hints).
+- DONE W2 (`5ec83a5`): fix gốc cửa sổ trần Wayland — `window_decorations
+  None` khiến GPUI request Server, state kẹt Server khi compositor không
+  flip/không vẽ SSD; request Client tường minh → TitleBar hiện
+  deterministic (KDE/X11-no-compositor vẫn fallback native; MOTIF hints
+  đã verify giữ decorations). User nghiệm thu trên Wayland thật.
 2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
    virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
    `ADE_LIVE_KIT=1` khi có).
