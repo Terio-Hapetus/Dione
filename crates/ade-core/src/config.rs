@@ -9,6 +9,8 @@ pub struct AppConfig {
     pub opencode_binary: String,
     pub poll_interval_ms: u64,
     pub busy_poll_interval_ms: u64,
+    /// Pinned theme (`"light"`/`"dark"`). `None` = follow the system.
+    pub theme: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -18,6 +20,7 @@ impl Default for AppConfig {
             opencode_binary: "opencode".to_string(),
             poll_interval_ms: 2_000,
             busy_poll_interval_ms: 600,
+            theme: None,
         }
     }
 }
@@ -28,11 +31,17 @@ impl AppConfig {
     }
 
     pub fn load() -> Self {
-        let mut cfg = Self::default();
         let Some(path) = Self::config_path() else {
-            return cfg;
+            return Self::default();
         };
-        let Ok(raw) = std::fs::read_to_string(&path) else {
+        Self::load_from(&path)
+    }
+
+    /// Load from an explicit path (pure-ish seam for tests; `load()`
+    /// delegates with the real config dir).
+    pub fn load_from(path: &std::path::Path) -> Self {
+        let mut cfg = Self::default();
+        let Ok(raw) = std::fs::read_to_string(path) else {
             return cfg;
         };
         let Ok(value) = raw.parse::<toml::Table>() else {
@@ -53,7 +62,44 @@ impl AppConfig {
         {
             cfg.busy_poll_interval_ms = (n.max(150)) as u64;
         }
+        if let Some(s) = value.get("theme").and_then(|v| v.as_str())
+            && (s == "light" || s == "dark")
+        {
+            cfg.theme = Some(s.to_string());
+        }
         cfg
+    }
+
+    /// Persist the pinned theme (`None` = follow system again).
+    /// Reads the existing table first so unrelated keys survive.
+    pub fn save_theme(pref: Option<&str>) -> bool {
+        let Some(path) = Self::config_path() else {
+            return false;
+        };
+        Self::save_theme_to(&path, pref)
+    }
+
+    /// `save_theme` against an explicit path (tests; `save_theme`
+    /// delegates with the real config dir).
+    pub fn save_theme_to(path: &std::path::Path, pref: Option<&str>) -> bool {
+        let mut table: toml::Table = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|raw| raw.parse().ok())
+            .unwrap_or_default();
+        match pref {
+            Some(t) => {
+                table.insert("theme".to_string(), toml::Value::String(t.to_string()));
+            }
+            None => {
+                table.remove("theme");
+            }
+        }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(path, table.to_string()).is_ok()
     }
 }
 
@@ -64,4 +110,46 @@ fn expand_home(s: &str) -> String {
         return home.join(rest).to_string_lossy().into_owned();
     }
     s.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "ade-cfg-test-{}-{}-{name}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ))
+    }
+
+    #[test]
+    fn theme_round_trips_and_keeps_other_keys() {
+        let dir = scratch("theme");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "opencode_binary = \"codex\"\n").unwrap();
+        assert!(AppConfig::save_theme_to(&path, Some("light")));
+        let cfg = AppConfig::load_from(&path);
+        assert_eq!(cfg.theme.as_deref(), Some("light"));
+        // Unrelated keys survive the rewrite.
+        assert_eq!(cfg.opencode_binary, "codex");
+        // Garbage theme values fall back to follow-system.
+        std::fs::write(&path, "theme = \"neon\"\n").unwrap();
+        assert_eq!(AppConfig::load_from(&path).theme, None);
+        // Clearing the pin removes the key.
+        assert!(AppConfig::save_theme_to(&path, None));
+        assert_eq!(AppConfig::load_from(&path).theme, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_file_yields_follow_system_default() {
+        let path = scratch("missing").join("config.toml");
+        assert_eq!(AppConfig::load_from(&path).theme, None);
+    }
 }

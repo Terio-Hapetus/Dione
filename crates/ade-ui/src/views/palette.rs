@@ -7,9 +7,11 @@
 
 use std::collections::BTreeSet;
 
-use ade_core::Command;
+use ade_core::{AppConfig, Command};
 use gpui::*;
-use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, input::Input, label::Label};
+use gpui_component::{
+    ActiveTheme as _, Sizable as _, Theme, ThemeMode, button::Button, input::Input, label::Label,
+};
 
 use super::sidebar::fleet_rank;
 use super::theme::{TEXT_META, empty_state, muted_for};
@@ -34,6 +36,8 @@ pub(crate) enum PaletteAction {
     OpenWtDialog,
     ToggleTerminal,
     SetRightTab(RightTab),
+    ToggleTheme,
+    FollowSystemTheme,
 }
 
 /// Case-insensitive substring filter (pure: unit-tested). Empty query
@@ -130,6 +134,18 @@ impl AdeApp {
             hint: "view".into(),
             action: PaletteAction::ToggleTerminal,
         });
+        items.push(PaletteItem {
+            id: "toggle-theme".into(),
+            label: "Toggle light/dark theme".into(),
+            hint: "view".into(),
+            action: PaletteAction::ToggleTheme,
+        });
+        items.push(PaletteItem {
+            id: "follow-system-theme".into(),
+            label: "Follow system theme".into(),
+            hint: "view".into(),
+            action: PaletteAction::FollowSystemTheme,
+        });
         for (tab, name) in [
             (RightTab::Context, "context"),
             (RightTab::Diff, "diff"),
@@ -146,7 +162,12 @@ impl AdeApp {
     }
 
     /// Run an action and close the palette.
-    pub(crate) fn run_palette(&mut self, action: PaletteAction, cx: &mut Context<Self>) {
+    pub(crate) fn run_palette(
+        &mut self,
+        action: PaletteAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.show_palette = false;
         match action {
             PaletteAction::SelectWorktree(slug) => {
@@ -173,6 +194,24 @@ impl AdeApp {
             PaletteAction::SetRightTab(tab) => {
                 self.right_tab = tab;
             }
+            PaletteAction::ToggleTheme => {
+                let dark = !cx.theme().is_dark();
+                Theme::change(
+                    if dark {
+                        ThemeMode::Dark
+                    } else {
+                        ThemeMode::Light
+                    },
+                    Some(window),
+                    cx,
+                );
+                AppConfig::save_theme(Some(if dark { "dark" } else { "light" }));
+            }
+            PaletteAction::FollowSystemTheme => {
+                let mode: ThemeMode = window.appearance().into();
+                Theme::change(mode, Some(window), cx);
+                AppConfig::save_theme(None);
+            }
         }
         cx.notify();
     }
@@ -185,7 +224,7 @@ impl AdeApp {
             let action = first.action.clone();
             self.palette_input
                 .update(cx, |st, cx| st.set_value("", window, cx));
-            self.run_palette(action, cx);
+            self.run_palette(action, window, cx);
         }
     }
 
@@ -206,8 +245,8 @@ impl AdeApp {
         }
         for it in matched {
             let action = it.action.clone();
-            let run = cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.run_palette(action.clone(), cx);
+            let run = cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.run_palette(action.clone(), window, cx);
             });
             list = list.child(
                 div()

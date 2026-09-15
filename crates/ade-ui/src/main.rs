@@ -13,12 +13,19 @@ fn main() {
     }));
 
     let config = ade_core::AppConfig::load();
+    let theme_pref = config.theme.clone();
     let rt = ade_core::runtime::spawn(config);
 
     Application::new()
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx| {
             gpui_component::init(cx);
+
+            // Theme resolve (T2): `ADE_THEME` env > pinned config >
+            // system appearance. Applied before the window opens so the
+            // first frame already uses the right palette.
+            let mode = ade_ui_theme(theme_pref.as_deref(), cx);
+            gpui_component::Theme::change(mode, None, cx);
 
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             // Keep the WM/app-switcher title: transparent options blank it.
@@ -54,4 +61,28 @@ fn main() {
 
             cx.activate(true);
         });
+}
+
+/// Resolve the startup theme (pure-ish, unit-tested via `parse_theme`).
+/// Precedence: `ADE_THEME` env > pinned `config.toml` > system appearance.
+fn ade_ui_theme(pinned: Option<&str>, cx: &gpui::App) -> gpui_component::ThemeMode {
+    if let Some(mode) = std::env::var("ADE_THEME")
+        .ok()
+        .as_deref()
+        .and_then(parse_theme)
+    {
+        return mode;
+    }
+    if let Some(mode) = pinned.and_then(parse_theme) {
+        return mode;
+    }
+    cx.window_appearance().into()
+}
+
+fn parse_theme(s: &str) -> Option<gpui_component::ThemeMode> {
+    match s.to_lowercase().as_str() {
+        "light" => Some(gpui_component::ThemeMode::Light),
+        "dark" => Some(gpui_component::ThemeMode::Dark),
+        _ => None,
+    }
 }

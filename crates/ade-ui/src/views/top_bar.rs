@@ -1,7 +1,7 @@
-use ade_core::ConnState;
+use ade_core::{AppConfig, ConnState};
 use gpui::*;
 use gpui_component::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, label::Label,
+    ActiveTheme as _, Icon, IconName, Sizable as _, Theme, ThemeMode, button::Button, label::Label,
 };
 
 use super::theme::{TOP_H, bad_color, fmt_money, muted_for, ok_color, truncate, warn_color};
@@ -34,6 +34,22 @@ impl AdeApp {
         let open_palette = cx.listener(|this, _: &ClickEvent, _, cx| {
             this.show_palette = true;
             cx.notify();
+        });
+        // Theme toggle (T2): flips the palette live and pins the choice
+        // in `config.toml` (`None` pin = follow system, via palette).
+        let theme_label = if dark { "☀" } else { "☾" };
+        let toggle_theme = cx.listener(|_, _: &ClickEvent, window, cx| {
+            let dark = !cx.theme().is_dark();
+            Theme::change(
+                if dark {
+                    ThemeMode::Dark
+                } else {
+                    ThemeMode::Light
+                },
+                Some(window),
+                cx,
+            );
+            AppConfig::save_theme(Some(if dark { "dark" } else { "light" }));
         });
 
         div()
@@ -69,6 +85,13 @@ impl AdeApp {
                     .xsmall()
                     .compact()
                     .on_click(open_palette),
+            )
+            .child(
+                Button::new("theme-toggle")
+                    .label(theme_label)
+                    .xsmall()
+                    .compact()
+                    .on_click(toggle_theme),
             )
             .child(div().flex_1())
             .child(
