@@ -216,6 +216,9 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
    composer single-mode, review gom nút, palette ⌘K, permission phân cấp).
 - DONE T1 (`b8a4643`): surface colors mode-aware (dark giữ legacy constants
   có test khóa, light neutrals); chưa đổi behavior (chưa ai gọi change).
+- DONE T2 (`6ab7b5e`): theme toggle (nút ☀/☾ topbar + 2 actions palette,
+  pin vào config.toml, resolve ADE_THEME > config > system ở startup);
+  ade-core 64 + ade-ui 31 passed; Xvfb smoke cả 2 mode sạch.
 - DONE W1 (`9da3ea9`): window chrome — custom CSD TitleBar (kéo +
   min/max/close, chỉ khi Wayland Client-decorations; X11 giữ native
   bar) + min size 640×480 (verify trong WM hints) + app_id `ade`;
