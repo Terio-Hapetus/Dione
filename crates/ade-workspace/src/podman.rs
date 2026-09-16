@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::provider::{ExecOut, WorkspaceProvider};
+use super::host::HostShell;
+use super::provider::{ExecOut, ShellChannel, WorkspaceProvider};
 
 /// Container workdir. Podman bind-mounts the workspace at this path
 /// (`-v <host_root>:<ctr_dir>:rw,Z`), replacing the MicroVM virtiofs
@@ -107,6 +108,29 @@ impl WorkspaceProvider for PodmanProvider {
     }
     // ssh_info: default None — containers are not SSH guests.
     // shell(): default unsupported until P2.
+
+    /// Interactive shell: local pty running the podman client.
+    /// `cwd` maps to the container workdir (`-w`); the pty itself starts
+    /// in the host path when it exists (bind source), else temp.
+    /// No `-L` forwards here — preview ports publish at `run` (P3).
+    fn shell(&mut self, cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {
+        let dir = self.mount.map(cwd)?;
+        let local = if cwd.is_dir() {
+            cwd.to_path_buf()
+        } else {
+            std::env::temp_dir()
+        };
+        let bin = self.bin.to_string_lossy().into_owned();
+        let args = vec![
+            "exec".to_string(),
+            "-it".to_string(),
+            "-w".to_string(),
+            dir,
+            self.container.clone(),
+            "sh".to_string(),
+        ];
+        Ok(Box::new(HostShell::spawn_cmd(&local, &bin, &args, 80, 24)?))
+    }
 }
 
 /// Is `podman` runnable via `PATH`? Missing → Host fallback + banner.
@@ -217,5 +241,60 @@ mod tests {
     fn probe_never_panics() {
         // Either answer is fine; the point is Host fallback, not podman.
         let _ = probe_podman();
+    }
+
+    /// Interactive fake `podman`: records argv, then becomes a local shell.
+    fn interactive_podman() -> FakePodman {
+        let fake = FakePodman::new("", 0);
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" > \"{}/args.txt\"\nexec sh\n",
+            fake._dir.display(),
+        );
+        std::fs::write(&fake.bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&fake.bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fake
+    }
+
+    fn read_until(sh: &mut dyn ShellChannel, needle: &str) -> Vec<u8> {
+        let mut acc = Vec::new();
+        for _ in 0..100 {
+            acc.extend(sh.read_available());
+            if String::from_utf8_lossy(&acc).contains(needle) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        acc
+    }
+
+    #[test]
+    fn shell_runs_podman_exec_under_pty() {
+        let fake = interactive_podman();
+        let mut p = provider(&fake);
+        let mut sh = p.shell(Path::new("/repo/sub-missing")).unwrap();
+        sh.write_bytes(b"echo via-podman\n").unwrap();
+        let out = read_until(&mut *sh, "via-podman");
+        assert!(String::from_utf8_lossy(&out).contains("via-podman"));
+        let argv = fake.args();
+        assert!(
+            argv.contains("exec -it -w /workspace/sub-missing"),
+            "{argv}"
+        );
+        assert!(argv.contains("ade-test sh"), "{argv}");
+        // No SSH legacy: no -i/-p/-L/user@host anywhere.
+        assert!(!argv.contains("-L"), "{argv}");
+        assert!(!argv.contains('@'), "{argv}");
+        sh.kill().unwrap();
+    }
+
+    #[test]
+    fn shell_rejects_cwd_outside_mount() {
+        let fake = interactive_podman();
+        let mut p = provider(&fake);
+        assert!(p.shell(Path::new("/elsewhere")).is_err());
     }
 }
