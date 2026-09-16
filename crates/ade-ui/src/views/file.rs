@@ -15,7 +15,7 @@ use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Labe
 
 use super::theme::{empty_state, muted_for, truncate, warn_color};
 use crate::app::AdeApp;
-use crate::vm_thread::workspace_root;
+use crate::container_thread::workspace_root;
 
 pub(crate) const MAX_FILE_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_FILE_LINES: usize = 2000;

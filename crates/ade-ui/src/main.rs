@@ -1,6 +1,6 @@
 mod app;
+mod container_thread;
 mod views;
-mod vm_thread;
 
 use gpui::{
     AnyView, AppContext as _, Application, Bounds, WindowBounds, WindowDecorations, WindowOptions,

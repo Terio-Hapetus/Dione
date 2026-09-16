@@ -88,15 +88,15 @@ impl AdeApp {
         })
     }
 
-    /// Is this worktree's guest Ready/Running?
+    /// Is this worktree's container Running?
     fn guest_ready(&self, slug: &str) -> bool {
         self.vm_states
             .get(slug)
-            .is_some_and(|s| matches!(s, ade_vm::VmState::Ready | ade_vm::VmState::Running))
+            .is_some_and(|s| matches!(s, ade_workspace::ContainerState::Running))
     }
 
-    /// Show/hide the terminal tab. Guest Ready → SSH shell via the VM
-    /// thread (async reply); otherwise a local Host shell, spawned now.
+    /// Show/hide the terminal tab. Container Running → shell via the
+    /// container thread (async reply); otherwise a local Host shell.
     pub(crate) fn toggle_terminal(&mut self) {
         if self.show_terminal {
             self.show_terminal = false;

@@ -9,16 +9,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ade_core::{Command, DiffNote, RuntimeHandle, Store};
-use ade_vm::{SshInfo, VmState, probe_kvm};
-use ade_workspace::{default_agents_path, load_agents_toml, probe_all};
+use ade_workspace::{
+    ContainerState, default_agents_path, load_agents_toml, probe_all, probe_podman,
+};
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _,
     input::{InputEvent, InputState},
 };
 
+use crate::container_thread::ContainerThread;
 use crate::views::terminal::TermState;
-use crate::vm_thread::VmThread;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum RightTab {
@@ -48,11 +49,11 @@ pub struct AdeApp {
     pub(crate) hunk_picks: BTreeSet<(String, String, usize)>,
     /// File open in the viewer tab (M8e, text-first).
     pub(crate) open_file: Option<crate::views::file::OpenFile>,
-    /// KVM capability at startup. False → Host-mode banner (Lab 6).
+    /// Podman capability at startup. False → Host-mode banner.
     pub(crate) vm_available: bool,
-    /// Workspace slug → VM lifecycle state. Filled by the VmManager
-    /// wiring (post-M5 Open-Workspace flow); empty until then.
-    pub(crate) vm_states: BTreeMap<String, VmState>,
+    /// Workspace slug → container lifecycle state. Filled by the
+    /// container thread (ADR-0006); empty until then.
+    pub(crate) vm_states: BTreeMap<String, ContainerState>,
     /// Agent registry names from `agents.toml` (M4b), in file order.
     pub(crate) agent_names: Vec<String>,
     /// Name → binary present on `PATH` (green/red tick, Lab 4).
@@ -76,19 +77,18 @@ pub struct AdeApp {
     /// Command palette (UX6): open flag + filter input.
     pub(crate) show_palette: bool,
     pub(crate) palette_input: Entity<InputState>,
-    /// VM manager background thread (W2). UI sends Ensure/Stop, drains
-    /// reports in the snapshot loop — never blocks.
-    pub(crate) vm: VmThread,
-    /// SSH endpoints per worktree slug (for the badge + manual access).
-    pub(crate) vm_ssh: BTreeMap<String, SshInfo>,
-    /// Pending guest shell reply (W3). Polled without blocking.
-    pub(crate) pending_shell: Option<std::sync::mpsc::Receiver<crate::vm_thread::ShellReply>>,
+    /// Container background thread (ADR-0006). UI sends Ensure/Stop,
+    /// drains reports in the snapshot loop — never blocks.
+    pub(crate) vm: ContainerThread,
+    /// Pending container shell reply. Polled without blocking.
+    pub(crate) pending_shell:
+        Option<std::sync::mpsc::Receiver<crate::container_thread::ShellReply>>,
     /// True while a guest shell is in flight (placeholder text).
     pub(crate) term_pending: bool,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
-/// the runtime sweep, cheap enough for a PATH scan + KVM probe).
+/// the runtime sweep, cheap enough for a PATH scan + podman probe).
 pub(crate) const SLOW_REFRESH_EVERY_POLLS: u64 = 375;
 
 /// Load `(names, probe)` from an `agents.toml` path. `None`/missing →
@@ -178,18 +178,10 @@ impl AdeApp {
                         app.store = snap;
                         cx.notify();
                     }
-                    // VM reports: feed the Fleet badge without blocking.
+                    // Container reports: feed the Fleet badge without blocking.
                     let mut vm_changed = false;
                     for rep in app.vm.drain() {
-                        match rep.ssh {
-                            Some(ssh) => {
-                                app.vm_ssh.insert(rep.slug.clone(), ssh);
-                            }
-                            None => {
-                                app.vm_ssh.remove(&rep.slug);
-                            }
-                        }
-                        app.set_vm_state(rep.slug, rep.state);
+                        app.set_container_state(rep.slug, rep.state);
                         vm_changed = true;
                     }
                     if vm_changed {
@@ -200,11 +192,11 @@ impl AdeApp {
                         cx.notify();
                     }
                     // Slow refresh: pick up agents.toml edits, newly
-                    // installed binaries, and KVM hotplug without restart.
+                    // installed binaries, and podman install without restart.
                     app.polls += 1;
                     if app.polls.is_multiple_of(SLOW_REFRESH_EVERY_POLLS) {
                         app.refresh_agents();
-                        app.vm_available = probe_kvm();
+                        app.vm_available = probe_podman();
                         cx.notify();
                     }
                     // Terminal pump: non-blocking scrollback drain.
@@ -218,7 +210,7 @@ impl AdeApp {
 
         let store = rt.snapshot();
         let (agent_names, agent_ok) = load_agent_statuses(default_agents_path().as_deref());
-        let vm = VmThread::spawn();
+        let vm = ContainerThread::spawn();
         Self {
             rt,
             store,
@@ -234,9 +226,8 @@ impl AdeApp {
             reply_target: None,
             hunk_picks: BTreeSet::new(),
             open_file: None,
-            vm_available: probe_kvm(),
+            vm_available: probe_podman(),
             vm_states: BTreeMap::new(),
-            vm_ssh: BTreeMap::new(),
             agent_names,
             agent_ok,
             polls: 0,
@@ -282,9 +273,9 @@ impl AdeApp {
         self.agent_ok = ok;
     }
 
-    /// Record a workspace VM state for the Fleet badge.
-    /// Fed by the VmManager thread via the snapshot loop (W2).
-    pub(crate) fn set_vm_state(&mut self, slug: String, state: VmState) {
+    /// Record a workspace container state for the Fleet badge.
+    /// Fed by the container thread via the snapshot loop (ADR-0006).
+    pub(crate) fn set_container_state(&mut self, slug: String, state: ContainerState) {
         self.vm_states.insert(slug, state);
     }
 
