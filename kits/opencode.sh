@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
-# Kit: install the opencode CLI inside a fresh workspace VM (M6e).
-# Kits run at VM boot via MicroVm::exec, never baked into the image
-# (ADR-0004: pin version, rollback = pin version, no cached credentials).
+# Kit: install the opencode CLI inside a fresh workspace container.
+# Kits run at container boot via PodmanProvider::exec, never baked into
+# the image (ADR-0006: pin version, rollback = pin version).
 #
 #   ADE_OPENCODE_VERSION  exact version to install ("1.18.30"), or unset/
 #                         "latest" for the newest release.

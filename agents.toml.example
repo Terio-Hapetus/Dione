@@ -5,7 +5,7 @@
 #
 # Each entry: the binary ADE probes on PATH (green/red tick in the Agent
 # picker) + the CLI flag carrying the prompt + the kit script installed
-# at VM boot (M6; see kits/).
+# at container boot (see kits/).
 #
 # A missing file is fine — ADE runs with an empty registry.
 

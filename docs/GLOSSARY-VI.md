@@ -7,36 +7,31 @@ Dành cho người không phải kỹ sư phần mềm. Đọc 1 lần, tra cứ
 Máy vật lý chạy ADE UI. Giống như "nhà chính". Mặc định app chạy ở đây
 (terminal, SSH client, secrets). An toàn vì agent chưa chạy ở đây.
 
-## MicroVM — căn phòng cách ly trong nhà
+## MicroVM — căn phòng cách ly trong nhà (legacy, đã thay bằng container — xem ADR-0006)
 
-Máy ảo siêu nhẹ: có **kernel riêng** (não riêng), boot <1s, tốn vài MB RAM.
-Agent chạy trong phòng này; có phá đồ cũng không lan ra nhà chính.
+Máy ảo siêu nhẹ: có **kernel riêng** (não riêng). ADE từng dùng
+Cloud Hypervisor, nay dùng podman (share kernel, nhẹ hơn nhiều).
 Khác container (container share kernel = share não với host).
 
-- Ví dụ: Docker Sandboxes (`sbx`) mỗi sandbox là 1 microVM.
-- ADE dùng **Cloud Hypervisor** (VMM viết bằng Rust, có REST API).
+## Container — phòng cách ly nhẹ (podman rootless, thay MicroVM từ ADR-0006)
 
-## KVM — chìa khóa vào phòng
+Agent chạy trong container; bind-mount duy nhất là workspace
+(`/workspace:rw`), không sờ được host. Share kernel với host nên nhẹ
+hơn VM rất nhiều. Không có `podman` → ADE rớt về Host mode + banner.
 
-`/dev/kvm` là module kernel Linux cho phép tạo VM bằng phần cứng
-(Intel VT-x / AMD-V). Không có KVM → ADE tự rớt về Host mode + banner
-"VM unavailable", không crash. Kiểm tra: `ls -l /dev/kvm`.
+## KVM — chìa khóa vào phòng (legacy, không cần nữa)
 
-## virtiofs — cửa sổ lùa giữa nhà và phòng
+`/dev/kvm` từng cần để tạo MicroVM. Nay không dùng: kiểm tra sandbox
+bằng `which podman`.
 
-Chia sẻ thư mục host ↔ VM 2 chiều tức thì. Repo trên host mount
-read-write vào VM; agent sửa trong VM là host thấy ngay.
-Tắt cache khi `git status` lạ: `VIRTIOFS_CACHE=0`.
+## virtiofs — cửa sổ lùa cũ (legacy, nay là bind-mount `-v …:rw,Z`)
 
-## vsock — ống nói chuyện host ↔ VM
+## vsock — ống nói chuyện host ↔ VM (legacy, nay là `podman exec`)
 
-Kênh socket riêng host-guest, không qua mạng ngoài. Dùng để SSH vào VM,
-forward port preview. Nhanh + không lộ ra LAN.
+## SSH — chìa khóa + ống nói (legacy trong ADE, nay là `podman exec -it`)
 
-## SSH — chìa khóa + ống nói
-
-`ssh -i <key-ephemeral> vm@...` để mở terminal vào VM. Key sinh mới mỗi
-lần boot, không reuse. `~/.ssh/authorized_keys` trong VM được bơm lúc boot.
+Mở terminal vào container: `podman exec -it <name> sh`. Không key,
+không `authorized_keys`, không reuse gì cả.
 
 ## Worktree — bàn làm việc riêng
 
@@ -46,8 +41,8 @@ ADE: `<repo>/.ade-worktrees/<slug>` + branch `ade/<slug>`.
 
 ## Workspace — cả tầng làm việc
 
-1 repo + cấu hình + worktrees. ADE: **1 VM / 1 workspace**
-(worktrees nằm trong mount của VM, tiết kiệm RAM hơn 1 VM/worktree).
+1 repo + cấu hình + worktrees. ADE: **1 container / 1 workspace**
+(worktrees nằm trong bind-mount của container).
 
 ## Agent — người thợ trong phòng
 
@@ -57,14 +52,13 @@ Thêm agent mới = thêm 1 kit script (xem `AGENT-ANY.md`).
 
 ## Kit script — công thức lắp thợ
 
-Script cài agent lúc boot VM (`kits/claude.sh`…). Image gốc minimal,
+Script cài agent lúc boot container (`kits/claude.sh`…). Image gốc minimal,
 agent luôn mới nhất mà không build lại image. Học từ Docker `sbx` kits.
 
 ## Backend/Provider — ổ cắm thay được
 
-Interface (trait) + nhiều implementation: `VmBackend { CloudHypervisor,
-ExternalSbx, Mock }`, `WorkspaceProvider { Host, MicroVm }`,
-`AgentBackend { Opencode, Terminal }`. Thay ổ cắm không đụng tường (legacy).
+Interface (trait) + nhiều implementation: `WorkspaceProvider { Host,
+Podman }`, `AgentBackend { Opencode, Terminal }`.
 
 ## Transcript — biên bản cuộc họp
 
@@ -74,7 +68,7 @@ opencode trong UI. Mọi agent đều dịch về 1 biên bản chung để Chat
 ## Secrets proxy — két sắt ở nhà chính
 
 API key nằm ở keychain host. Khi agent cần, host bơm vào env của lệnh
-exec, không ghi file trong VM. Agent gọi được API nhưng không đọc được key.
+exec, không ghi file trong container. Agent gọi được API nhưng không đọc được key.
 
 ## NetPolicy — nội quy mạng
 

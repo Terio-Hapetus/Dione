@@ -4,11 +4,11 @@
 
 - ADE mặc định là **Terminal + Chat GUI**. Agent là backend cắm vào.
 - Không bundle model. BYO subscription/key. Phát hiện binary, user chọn per-task.
-- Chat và Terminal cùng cwd = worktree. Agent không biết mình ở Host hay VM.
+- Chat và Terminal cùng cwd = worktree. Agent không biết mình ở Host hay container.
 
 ## Thêm agent mới trong 3 bước
 
-1. Thêm kit script `kits/<ten>.sh` (cài binary lúc boot VM, không bake vào image).
+1. Thêm kit script `kits/<ten>.sh` (cài binary lúc container boot, không bake vào image).
 2. Thêm 1 dòng vào `agents.toml`:
    ```toml
    [agents.<ten>] bin = "<bin>" prompt_arg = "-p"

@@ -24,7 +24,13 @@ M8 CLOSED (review++ trên branch feat/m7-fleet-reliability).
 PR #1 MERGED (`eeda103`): M7+M8 vào main; nhánh feat đã xóa (local + remote).
 Remote: Terio-Hapetus/Dione (đã chuyển từ hquoclong/Dione).
 Lưu ý env: mọi lệnh git/gh cần `env -u GH_TOKEN` (token cũ invalid đè credential).
-Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
+Next: live podman lần đầu (Lab 2/3, `ADE_LIVE_PODMAN=1`) hoặc M9 (Cost/BYOK).
+Mctr: podman thay MicroVM DONE (ADR-0006, FS-isolation + open egress):
+P1 `PodmanProvider::exec` + probe + mount-map, P2 shell `exec -it` dưới
+pty, P3 `ContainerManager` + `ContainerState` + live gate, P4
+`ContainerThread` + UI wiring (badge `ctr:`/banner Host mode), P5a xóa
+`ade-vm` + `microvm.rs` + `ssh_info`, P5b docs (spec container + labs +
+glossary + roadmap). History CH còn trong git.
 
 ## Last commit (đã verify)
 
@@ -228,14 +234,13 @@ Next: M9 (Cost/BYOK) hoặc live KVM lần đầu (Lab 2/3).
   flip/không vẽ SSD; request Client tường minh → TitleBar hiện
   deterministic (KDE/X11-no-compositor vẫn fallback native; MOTIF hints
   đã verify giữ decorations). User nghiệm thu trên Wayland thật.
-2. Live lần đầu trên máy KVM: Lab 2/3 (`ADE_LIVE_VM=1`), re-verify flag
-   virtiofsd + vsock socket + user `ubuntu` + cmdline root (+ kit gate
-   `ADE_LIVE_KIT=1` khi có).
-2. M6 còn lại: Open-Workspace VM-thread wiring (nối `VmManager` vào UI:
-   `set_vm_state`/banner hết dead, SSH tab vào guest qua `MicroVm::shell`,
-   preview ports) — seam + Host path đã xong.
+2. Live lần đầu trên máy podman: Lab 2/3 (`ADE_LIVE_PODMAN=1`), re-verify
+   bind-mount `-v …:rw,Z` + user + image pin (máy này không podman nên
+   live test SKIP-pass).
+2. M6 còn lại: Open-Workspace container wiring production (`rt.fleet()`
+   callsite: `open_task_with` với `PodmanProvider`) + live podman
 3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers
 
-- None. Cần 1 máy có `/dev/kvm` để chạy live tests M5 lần đầu.
+- None. Cần 1 máy có podman để chạy live tests container lần đầu.

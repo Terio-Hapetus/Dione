@@ -1,6 +1,6 @@
 # ADE Roadmap
 
-> Chi tiết M3→M15 (agent-agnostic + Workspace/MicroVM). Spec: `ARCHITECTURE-v2.md`,
+> Chi tiết M3→M15 (agent-agnostic + Workspace/Container). Spec: `ARCHITECTURE-v2.md`,
 > `WORKSPACE-VM.md`, `AGENT-ANY.md`. Cách làm: `WORKFLOW.md`. Labs: `LABS.md`.
 
 ## M0 — Bootstrap ✅ done (`7d8f4e1`)
@@ -51,29 +51,29 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [x] `Supervisor` (backend+workspace/task) + kanban-lite `Dispatcher` 60s
       (structs + tests; runtime sweep wiring pending)
 
-## M5 — MicroVM lõi (1 VM / workspace)
+## M5 — Sandbox container (1 container / workspace, ADR-0006 thay MicroVM)
 
-- [x] `vm.rs` + `Mock` + probe `/dev/kvm` → fallback Host (CI xanh không KVM)
-- [x] `CloudHypervisorBackend`: boot → wait_ssh → mount virtiofs → stop
-      (REST qua UDS, seed cloud-init, proxy vsock; live-gate `ADE_LIVE_VM=1`)
-- [x] `VmManager` (probe→boot→ssh→mount→ready, timeouts) + `MicroVm`
-      provider (exec ssh, secrets-via-env) + `EphemeralKey` + image pull/verify
-- [x] UI: badge `VmState` ở Fleet + banner Host mode khi mất KVM (Lab 6)
-- [x] Tách crates `ade-workspace` / `ade-vm` khi API ổn định
-- [ ] Live lần đầu trên máy KVM: Lab 2/3 xanh, re-verify flag virtiofsd/vsock
-- Ghi chú: `ExternalSbx` đã implement để validate sớm rồi xóa (ADR-0005),
-  CH là backend duy nhất.
+- [x] `PodmanProvider` (exec `-e` secrets-via-env, shell `exec -it` dưới pty)
+      + `probe_podman` → fallback Host (CI xanh không podman)
+- [x] `ContainerManager` (probe→pull→run→ready, timeouts) + `ContainerState`
+      (`Missing|Pulling|Running|Stopped|Error`) + image pin + live-gate
+      `ADE_LIVE_PODMAN=1`
+- [x] UI: badge `ctr:` ở Fleet + banner Host mode khi mất podman (Lab 6)
+- [x] Xóa `ade-vm` (CH/seed/vsock/uds/keys/manager) + `microvm.rs` + `ssh_info`
+- [ ] Live lần đầu trên máy podman: Lab 2/3 xanh
+- Ghi chú: MicroVM (CH) đã implement để validate seam rồi xóa (ADR-0006),
+  podman rootless là engine duy nhất. History còn trong git.
 
-## M6 — Terminal modern (Warp-like + SSH attach)
+## M6 — Terminal modern (Warp-like + container attach)
 
 - [x] Local pty tab + scrollback/search (Host: `ShellChannel`/`HostShell`,
       terminal tab viewer + input + filter; Xvfb smoke sạch)
-- [x] `MicroVm::shell` (ssh dưới pty + `-L` forwards) + `PreviewPorts`
-      `4100-4199` (seam + fake-ssh tests; live attach chờ máy KVM)
+- [x] `PodmanProvider::shell` (`exec -it` dưới pty, preview `-p 41xx:3000`)
+      + `ContainerThread` (Ensure/Stop/OpenShell, seam + fake-podman tests)
 - [x] `TerminalAdapter` (`portable-pty`) + kit đầu `kits/opencode.sh`
       (pin/verify + fake-guest tests; `Working` heuristic + `mark_done`)
-- [ ] Còn lại: Open-Workspace VM-thread wiring (`VmManager` → UI,
-      `set_vm_state`/banner hết dead, SSH tab vào guest) + live KVM
+- [ ] Còn lại: Open-Workspace container wiring production (`rt.fleet()`
+      callsite: `open_task_with` với `PodmanProvider`) + live podman
 
 ## M7 — Fleet reliability (học Hermes kanban) ✅ done (Host-only)
 
@@ -93,7 +93,7 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 ## M9 — Cost / BYOK
 
 - [ ] `metrics.rs`: tokens/cost per task/model/agent; control-room view
-- [ ] Account switcher + rate-limit visibility; secrets qua env (không vào VM)
+- [ ] Account switcher + rate-limit visibility; secrets qua env (không vào container)
 
 ## M10 — Remote / Notify (học Orca SSH + mobile)
 
@@ -117,9 +117,9 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 
 ## M14 — Hardening + Packaging
 
-- [ ] Defense-in-depth (native sandbox trong VM); audit secrets
-- [ ] AppImage/deb + size opt; KVM-less + offline fallback tests
-- [ ] P1 KHÔNG: Docker-in-VM, GPU passthrough, Balanced/Locked enforce
+- [ ] Defense-in-depth (hardening flags ở WORKSPACE-VM.md); audit secrets
+- [ ] AppImage/deb + size opt; podman-less + offline fallback tests
+- [ ] P1 KHÔNG: Docker-in-container, GPU passthrough, Balanced/Locked enforce
 
 ## M15 — 1.0 polish
 

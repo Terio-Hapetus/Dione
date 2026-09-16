@@ -8,7 +8,7 @@ Bạn không phải kỹ sư phần mềm? Đọc theo thứ tự này, mỗi fi
 2. `GLOSSARY-VI.md` — từ vựng: MicroVM, KVM, virtiofs, vsock, SSH, worktree… bằng tiếng Việt + ví dụ đời thường.
 3. `VISION.md` — ADE là gì / không là gì (giữ 1 dev + Linux native).
 4. `ARCHITECTURE-v2.md` — sơ đồ lớn: Host → Workspace → MicroVM → Agent. Ai gọi ai.
-5. `WORKSPACE-VM.md` — spec chi tiết VM (dành cho lúc code).
+5. `WORKSPACE-VM.md` — spec chi tiết sandbox container (dành cho lúc code).
 6. `AGENT-ANY.md` — spec agent-agnostic: thêm agent mới trong 3 bước.
 7. `WORKFLOW.md` — cách bạn làm việc mỗi ngày: research → slice nhỏ → verify → update STATUS.
 8. `LABS.md` — bài lab copy-paste được để kiểm tra từng bước.

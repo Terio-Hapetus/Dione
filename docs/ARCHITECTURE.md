@@ -16,10 +16,7 @@ crates/
 ├── ade-agent/         # AgentBackend trait + MockAgent + OpencodeAdapter
 │                      # (moved from ade-core; depends one-way on ade-core)
 ├── ade-workspace/     # Task + WorkspaceProvider { HostProvider, Mock }
-│                      # + MicroVm (exec ssh, secrets-via-env) (M4–M5)
-├── ade-vm/            # VmConfig/VmState/VmBackend { CH, Mock } + VmManager
-│                      # + EphemeralKey + image pull + uds/vsock_proxy/seed/ch
-│                      # (M5; CH là backend duy nhất — xem ADR-0005)
+│                      # + PodmanProvider (exec, secrets-via-env) + ContainerManager
 └── ade-ui/            # GPUI desktop bin
     └── src/{main,app}.rs + views/{theme,top_bar,sidebar,chat,
                                   composer,right_panel,diff,permission,

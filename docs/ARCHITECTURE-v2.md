@@ -1,4 +1,7 @@
-# ADE Architecture v2 (agent-agnostic + Workspace/MicroVM)
+# ADE Architecture v2 (agent-agnostic + Workspace/Container)
+
+> ADR-0006: MicroVM → podman. "VM/guest/SSH/virtiofs" còn sót trong file
+> này nghĩa là container tương ứng (1 container / workspace, bind-mount).
 
 > V1 (`ARCHITECTURE.md`) mô tả M1–M2 opencode-coupled. V2 là mục tiêu
 > M3→M15. V1 giữ nguyên để tra cứu legacy; code mới bám V2.
@@ -12,18 +15,16 @@
 └───────────────────────┬──────────────────────────────┘
                         │ chỉ khi Open Workspace / Run Agent
 ┌─ Workspace (1 repo) ──▼──────────────────────────────┐
-│ 1 MicroVM / 1 workspace                              │
-│ ├── worktrees trong mount virtiofs                   │
+│ 1 container / 1 workspace (podman rootless)          │
+│ ├── worktrees trong bind-mount /workspace            │
 │ │    <repo>/.ade-worktrees/<slug> (branch ade/<slug>)│
-│ ├── SSH server (key ephemeral mỗi boot)              │
-│ ├── guest-agent nhỏ (exec / heartbeat)               │
 │ └── agent CLI bất kỳ (kit script lúc boot)           │
 └──────────────────────────────────────────────────────┘
 ```
 
-- Source of truth = **repo trên host**, mount read-write vào VM qua
-  virtiofs. Merge trong VM hiện ngay trên host.
-- Không `/dev/kvm` → fallback Host mode + banner, không crash.
+- Source of truth = **repo trên host**, mount read-write vào container
+  qua bind-mount. Merge trong container hiện ngay trên host.
+- Không `podman` → fallback Host mode + banner, không crash.
 
 ## Crates (mục tiêu, 1 chiều, không vòng)
 
@@ -31,8 +32,8 @@
 crates/
 ├── ade-core/        # FROZEN M1–M2: Store/Command cũ giữ nguyên (dual-write)
 │   └── + modules mới tạm trú: transcript.rs → agent.rs → workspace.rs → vm.rs
-├── ade-workspace/   # (tách ở M5) Workspace + Task + WorkspaceProvider { Host, MicroVm }
-├── ade-vm/          # (tách ở M5) VmManager + VmBackend { CloudHypervisor, ExternalSbx, Mock }
+├── ade-workspace/   # Workspace + Task + WorkspaceProvider { Host, Podman }
+│                    # + ContainerManager (ensure/stop, image pull) — xem ADR-0006
 ├── ade-agent/       # AgentBackend { OpencodeAdapter, TerminalAdapter } + kits/*.sh
 └── ade-ui/          # HostShell + WorktreeView [Chat | Terminal]
 ```
@@ -42,8 +43,8 @@ Quy tắc chống vỡ legacy:
 1. Không sửa signature `Store`/`Command` cũ — chỉ **thêm** types mới.
 2. Module mới sống trong `ade-core` ở M3–M4 (<250 dòng/file), tách crate
    khi API ổn định (M5).
-3. Mọi backend có `Mock` để CI/Xvfb không KVM vẫn xanh.
-4. Build mặc định `host-only` không cần KVM.
+3. CI/Xvfb không podman vẫn xanh (fakes + live-gate `ADE_LIVE_PODMAN=1`).
+4. Build mặc định `host-only` không cần podman.
 
 ## Core types (khóa để review)
 
@@ -62,38 +63,32 @@ trait AgentBackend: Send {
 }
 enum AgentStatus { Idle, Working, NeedsInput{ reason: String }, Done, Error{ msg: String } }
 
-// workspace: Host và VM chung 1 mặt
+// workspace: Host và container chung 1 mặt
 trait WorkspaceProvider: Send {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> Result<ExecOut>;
     fn shell(&mut self) -> Result<ShellChannel>;
-    fn ssh_info(&self) -> Option<SshInfo>; // None = Host
     fn git_diff(&self) -> Result<GitDiff>; // qua git, không qua /session/diff
 }
 
-// vm: 1 VM / 1 workspace
-enum VmState { Missing, PullingImage, Booting, WaitingSsh, Mounting, Ready, Running, Stopped }
-enum NetPolicy { Open, Balanced, Locked } // p1 = Open, chừa hook
-trait VmBackend: Send {
-    fn boot(&mut self, cfg: &VmConfig) -> Result<VmHandle>;
-    fn wait_ssh(&self, h: &VmHandle) -> Result<SshInfo>;
-    fn stop(&mut self, h: &VmHandle) -> Result<()>;
-}
+// container: 1 container / 1 workspace (ADR-0006)
+enum ContainerState { Missing, Pulling, Running, Stopped, Error(String) }
+struct ContainerManager { /* ensure_running / stop over the podman CLI */ }
 ```
 
 - `OpencodeAdapter` bọc nguyên `server.rs` + SSE/poll hiện tại.
 - `TerminalAdapter` dùng `portable-pty`, status heuristic + nút `Mark done`.
-- Agent không biết mình ở Host hay VM (chỉ thấy `WorkspaceProvider`).
+- Agent không biết mình ở Host hay container (chỉ thấy `WorkspaceProvider`).
 
 ## Luồng chính
 
-**Boot workspace:** `Open` → probe `/dev/kvm` → pull image (nếu thiếu) →
-boot → wait SSH → mount virtiofs → Ready → mở Terminal tab.
-**Chạy agent:** `Run` → `VmManager` đảm bảo Ready → kit script cài agent
-(nếu thiếu) → `AgentBackend::spawn(ws, prompt)` → poll `AgentEvent` →
-dịch về `UnifiedMessage` → Chat render.
+**Boot workspace:** `Open` → probe `podman` → pull image (nếu thiếu) →
+run → Running → mở Terminal tab.
+**Chạy agent:** `Run` → `ContainerManager` đảm bảo Running → kit script
+cài agent (nếu thiếu) → `AgentBackend::spawn(ws, prompt)` → poll
+`AgentEvent` → dịch về `UnifiedMessage` → Chat render.
 **Review:** `git_diff` qua mount → compare/cherry-pick → merge winner
-(`--no-ff`) → prune. Secrets bơm qua env lúc exec, không ghi đĩa VM.
-**Rớt mạng/KVM:** timeout SSH → `Error` + banner, giữ worktree để retry tay.
+(`--no-ff`) → prune. Secrets bơm qua env lúc exec, không ghi đĩa container.
+**Rớt mạng/podman:** `Error` + banner, giữ worktree để retry tay.
 
 ## Dữ liệu (Store dual-write 2 milestone)
 

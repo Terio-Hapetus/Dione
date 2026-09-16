@@ -1,80 +1,66 @@
-# WORKSPACE-VM Spec (code theo file này ở M4–M6)
+# WORKSPACE-CONTAINER Spec (thay WORKSPACE-VM từ ADR-0006)
+
+Sandbox = podman rootless, không MicroVM. Code theo file này.
 
 ## Khái niệm
 
 - `Workspace` = 1 repo + cấu hình + worktrees. ID = canonical path của repo.
-- `WorkspaceProvider` = mặt chung cho Host và MicroVm (xem ARCHITECTURE-v2).
-- 1 VM / 1 workspace. Worktrees nằm trong mount, không phải mỗi worktree 1 VM.
+- `WorkspaceProvider` = mặt chung cho Host và Podman (xem ARCHITECTURE-v2).
+- 1 container / 1 workspace. Worktrees nằm trong bind-mount,
+  không phải mỗi worktree 1 container.
 
-## VmConfig
+## ContainerSpec
 
 ```rust
-struct VmConfig {
-    vcpu: u8,          // mặc định 2
-    mem_mb: u32,       // mặc định 2048
-    image: ImageRef,   // ví dụ "ade-ubuntu-24.04:v1"
-    mount_repo: PathBuf,
-    net: NetPolicy,    // p1 = Open
-    ssh_pubkey: String, // ephemeral, sinh mỗi boot
+struct ContainerSpec {
+    name: String,         // "ade-<12hex>" từ hash canonical path
+    host_root: PathBuf,   // bind-mount read-write vào /workspace
+    image: String,        // "docker.io/library/ubuntu:24.04" (pin digest)
+    preview_host: Option<u16>, // container :3000 → host 41xx
 }
 ```
+
+Hardening cố định lúc `run` (không flag tùy ý): `--cap-drop=all`,
+`--security-opt=no-new-privileges`, `--pids-limit=256`, `--memory=2g`,
+`--cpus=2`, `--read-only` + `--tmpfs /tmp`, `-w /workspace`,
+`--hostname ade`, `--network slirp4netns` (open egress).
+Cấm: `--privileged`, `--pid=host`, `--net=host`, mount ngoài root.
 
 ## State machine (enum dùng chung cho UI + code)
 
 ```
-Missing → PullingImage → Booting → WaitingSsh → Mounting → Ready → Running → Stopped
-              │              │           │             │
-              └──── fail ────┴── timeout ┴── mount-err ┘──→ Error(banner + giữ worktree retry tay)
+Missing → Pulling → Running → Stopped
+              │         │
+              └── fail ─┴──→ Error(banner + giữ worktree retry tay)
 ```
 
-- Mỗi state có timeout riêng (boot 30s, ssh 20s, mount 10s).
-- UI Fleet hiển thị badge state; log chi tiết ở Inspector tab.
+Không `WaitingSsh`/`Mounting` — không guest SSH, không virtiofs.
+UI Fleet hiển thị badge state.
 
-## Boot sequence (checklist cho implement)
+## Lifecycle (checklist cho implement)
 
-1. `probe`: `ls /dev/kvm` tồn tại + readable? Không → fallback `HostProvider`.
-2. `pull`: image thiếu → tải + verify checksum. Có sẵn → skip.
-3. `boot`: gọi `VmBackend::boot(cfg)` (CloudHypervisor REST / Mock).
-4. `wait_ssh`: poll `wait_ssh` tới timeout. Key ephemeral, không reuse.
-5. `mount`: virtiofs mount `mount_repo` vào `/workspace`. Verify `touch` 2 chiều.
-6. `ready`: tạo `.ade-worktrees/` nếu thiếu, mở Terminal tab (ssh).
-7. `stop/prune`: `vm.shutdown` + `vm.delete` — xóa VM + contents, worktrees đã merge thì prune branch.
+1. `probe`: `which podman` có? Không → fallback `HostProvider` + banner.
+2. `ensure`: `ps` thấy container → giữ nguyên. Thiếu → `pull` (có sẵn
+   thì skip) → `run -d … sleep infinity` → `Running`.
+3. `exec`: `podman exec -e K=V -w /workspace/<rel> <name> <cmd>`.
+   Secrets bơm qua `-e`, không copy file key vào container.
+4. `shell`: pty local chạy `podman exec -it -w <dir> <name> sh`.
+5. `stop/prune`: `rm -f <name>` — xóa container, worktrees đã merge
+   thì prune branch.
 
-## SSH & ports
+## Bind mount
 
-- SSH server: OpenSSH trong guest, `authorized_keys` bơm lúc boot.
-- Host nối qua vsock/port-forward: `ssh -i <ephemeral> -p <port> ubuntu@127.0.0.1`.
-- Preview: `VM:3000 → host:41xx` (mỗi workspace 1 dải, tránh đụng).
-- Secrets: không copy file key vào VM. Host bơm vào env của `exec`.
+- Read-write, sync 2 chiều tức thì (`-v <root>:/workspace:rw,Z`).
+  `git_diff`/`merge` chạy trên mount nên host thấy ngay.
 
-## virtiofs mount
+## Live requirements (máy chạy container thật)
 
-- Read-write, sync 2 chiều tức thì. `git_diff`/`merge` chạy trên mount nên host thấy ngay.
-- Khi `git status` lạ / file samhäl → thử `VIRTIOFS_CACHE=0` rồi remount.
-- Fallback không mount được → git push/pull qua SSH (để M sau, p1 chỉ cần báo lỗi rõ).
-
-## Backend chọn lúc nào
-
-| Backend | Khi nào dùng |
-|---|---|
-| `Mock` | CI, Xvfb, máy không KVM, test |
-| `CloudHypervisor` | Đường duy nhất (xem ADR-0005): native, virtiofs, REST API |
-
-## Live requirements (máy chạy VM thật)
-
-- KVM (`ls /dev/kvm`), binaries: `cloud-hypervisor`, `virtiofsd`,
-  `genisoimage`, `ssh`, `curl`, `sha256sum`, `ssh-keygen`.
-- Guest assets (1 trong 2 cách):
-  - `ADE_VM_KERNEL` + `ADE_VM_IMAGE` trỏ tới file local, hoặc
-  - `ADE_VM_KERNEL_URL` (+`_SHA256`) / `ADE_VM_IMAGE_URL` (+`_SHA256`)
-    để first-boot download vào `~/.local/share/ade/vm/` (có verify).
-- SSH guest qua vsock: cloud-init seed cài `socat` + `openssh-server`,
-  forward `VSOCK-LISTEN:2222 → localhost:22`; host proxy giữ port
-  127.0.0.1 ngẫu nhiên. Xem `crates/ade-vm/src/seed.rs` + `ch.rs`
-  (flag `virtiofsd`/`vsock socket` cần re-verify ở live test đầu tiên).
+- Binary: `podman` (rootless), network để `pull` image lần đầu.
+- Live test: `ADE_LIVE_PODMAN=1 cargo test -p ade-workspace --test live_podman`
+- Không podman → test SKIP-pass, app Host mode, CI/Xvfb vẫn xanh.
 
 ## Giới hạn p1 (không làm)
 
-- Không Docker-in-VM (để M14+).
+- Không Docker-in-container (để M14+).
 - Không GPU passthrough.
-- Không Balanced/Locked enforce (chỉ chừa enum + hook proxy).
+- Không Balanced/Locked enforce.
