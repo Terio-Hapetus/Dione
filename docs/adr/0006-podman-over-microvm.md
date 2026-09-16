@@ -15,9 +15,9 @@ không cần chống kernel-exploit/escape.
 
 ## Quyết định
 
-**Podman rootless là engine sandbox duy nhất.** `ade-vm`
+**Podman rootless là engine sandbox duy nhất.** `vm`
 (CloudHypervisor, seed, vsock_proxy, uds, image, keys, manager,
-backend) + `ade-workspace/src/microvm.rs` bị xóa hẳn. Thay bằng
+backend) + `workspace/src/microvm.rs` bị xóa hẳn. Thay bằng
 `PodmanProvider` implement cùng seam `WorkspaceProvider`
 (exec/shell/ssh_info=None), 1 container / 1 workspace (giữ ADR-0002),
 bind-mount `-v <root>:/workspace:rw,Z` thay virtiofs, `podman exec`
@@ -26,7 +26,7 @@ thay SSH, `podman pull` thay image-verify tay.
 ## Vì sao không giữ CH song song
 
 - Giữ 2 engine thật = nhân đôi ma trận test live (bài học ADR-0005).
-- CH chưa từng live-test thật trên máy này (luôn gate `ADE_LIVE_VM=1`,
+- CH chưa từng live-test thật trên máy này (luôn gate `DIONE_LIVE_VM=1`,
   máy không KVM) — xóa không mất coverage thật.
 - Git history giữ lại toàn bộ CH (`live_ch.rs`, `ch.rs`) để tham khảo.
 
@@ -44,4 +44,4 @@ thay SSH, `podman pull` thay image-verify tay.
   banner (thay `probe_kvm`). Không `ssh-keygen`/key ephemeral/cloud-init.
 - State rút gọn: `ContainerState{Missing|Pulling|Running|Stopped|
   Error}` — không `WaitingSsh/Mounting`. `Store` không thêm field
-  (state container vẫn chỉ ở `AdeApp` như VM state trước đây).
+  (state container vẫn chỉ ở `DioneApp` như VM state trước đây).

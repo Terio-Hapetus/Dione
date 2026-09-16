@@ -1,11 +1,11 @@
-# ADE Roadmap
+# Dione Roadmap
 
 > Chi tiết M3→M15 (agent-agnostic + Workspace/Container). Spec: `ARCHITECTURE-v2.md`,
 > `WORKSPACE-VM.md`, `AGENT-ANY.md`. Cách làm: `WORKFLOW.md`. Labs: `LABS.md`.
 
 ## M0 — Bootstrap ✅ done (`7d8f4e1`)
 
-Workspace, AGENTS.md, `ade-core` worktree/state pure logic, `ade-ui`
+Workspace, AGENTS.md, `base` worktree/state pure logic, `desktop`
 window skeleton opening under Xvfb.
 
 ## M1 — Single-agent ✅ done (`5bd2a94`, `66ec918`)
@@ -30,9 +30,9 @@ One task = one isolated git worktree, N agents in parallel.
       recovery
 - [x] Cap ~15 managed worktrees (enforced in `worktree::create`)
 
-Conventions: path `<repo>/.ade-worktrees/<slug>`, branch `ade/<slug>`;
+Conventions: path `<repo>/.dione-worktrees/<slug>`, branch `dione/<slug>`;
 one branch in one worktree; detached HEAD for experiments.
-Gitignore `.ade-worktrees/` in every target repo (else `git add .` warns
+Gitignore `.dione-worktrees/` in every target repo (else `git add .` warns
 about embedded repos).
 
 ## M3 — Agent-agnostic nền (transcript + trait + git-diff)
@@ -57,9 +57,9 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
       + `probe_podman` → fallback Host (CI xanh không podman)
 - [x] `ContainerManager` (probe→pull→run→ready, timeouts) + `ContainerState`
       (`Missing|Pulling|Running|Stopped|Error`) + image pin + live-gate
-      `ADE_LIVE_PODMAN=1`
+      `DIONE_LIVE_PODMAN=1`
 - [x] UI: badge `ctr:` ở Fleet + banner Host mode khi mất podman (Lab 6)
-- [x] Xóa `ade-vm` (CH/seed/vsock/uds/keys/manager) + `microvm.rs` + `ssh_info`
+- [x] Xóa `vm` (CH/seed/vsock/uds/keys/manager) + `microvm.rs` + `ssh_info`
 - [ ] Live lần đầu trên máy podman: Lab 2/3 xanh
 - Ghi chú: MicroVM (CH) đã implement để validate seam rồi xóa (ADR-0006),
   podman rootless là engine duy nhất. History còn trong git.

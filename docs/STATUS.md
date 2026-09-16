@@ -1,4 +1,4 @@
-# ADE Status (living file — update at the end of every task)
+# Dione Status (living file — update at the end of every task)
 
 ## Current milestone
 
@@ -24,13 +24,18 @@ M8 CLOSED (review++ trên branch feat/m7-fleet-reliability).
 PR #1 MERGED (`eeda103`): M7+M8 vào main; nhánh feat đã xóa (local + remote).
 Remote: Terio-Hapetus/Dione (đã chuyển từ hquoclong/Dione).
 Lưu ý env: mọi lệnh git/gh cần `env -u GH_TOKEN` (token cũ invalid đè credential).
-Next: live podman lần đầu (Lab 2/3, `ADE_LIVE_PODMAN=1`) hoặc M9 (Cost/BYOK).
+Next: live podman lần đầu (Lab 2/3, `DIONE_LIVE_PODMAN=1`) hoặc M9 (Cost/BYOK).
 Mctr: podman thay MicroVM DONE (ADR-0006, FS-isolation + open egress):
 P1 `PodmanProvider::exec` + probe + mount-map, P2 shell `exec -it` dưới
 pty, P3 `ContainerManager` + `ContainerState` + live gate, P4
 `ContainerThread` + UI wiring (badge `ctr:`/banner Host mode), P5a xóa
-`ade-vm` + `microvm.rs` + `ssh_info`, P5b docs (spec container + labs +
+`vm` + `microvm.rs` + `ssh_info`, P5b docs (spec container + labs +
 glossary + roadmap). History CH còn trong git.
+Restructure DONE (R0–R5): crates `base/agent/workspace` (R0 spike CM
+`core` FAIL vì `tokio::test` expand `core::prelude` → fallback `base`),
+rebrand runtime `ade→dione` (worktree/env/config/branding/`DioneApp`),
+UI `crates/ade-ui→apps/desktop` (package `desktop`, binary `dione`),
+docs sống + skills `dione-*`, docs lịch sử rewrite tên.
 
 ## Last commit (đã verify)
 
@@ -57,7 +62,7 @@ glossary + roadmap). History CH còn trong git.
     (snapshot UI không push store errors được); nút × đóng
   - Không gọi `code_editor()` (tránh highlight-sai-JSON); 0 dep mới
   - Tests: lang/checkout/load-cap/open-guard (ui 20) + Xvfb smoke sạch
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+- Verified: check + clippy 0 + fmt + `cargo test -p base -p desktop`
   xanh.
 - M8d (`8e0de12`):
   - `create_branch_here` (check-ref-format + rev-parse nguồn + collision
@@ -66,7 +71,7 @@ glossary + roadmap). History CH còn trong git.
   - `Command::{CreateBranchHere, HandOffToLocal}` + handler arms; Diff tab
     3 nút nhóm (Merge winner / Hand off / Branch here, tên từ composer)
   - Tests: pin-branch/collision/bad-name/missing + handoff-giữ-worktree
-    (phát hiện gitlink `.ade-worktrees` trong test cũ, đã ghi nhận)
+    (phát hiện gitlink `.dione-worktrees` trong test cũ, đã ghi nhận)
   - Verified: worktree 15/15 + full suite (lưu ý flake `microvm` lẻ khi
     chạy song song 4 crate, solo 34/34) + Xvfb smoke sạch
 - M8c2 (`13e1d68`):
@@ -75,7 +80,7 @@ glossary + roadmap). History CH còn trong git.
   - UI: nút `Reply` mỗi note → composer hint `↳ reply on …`;
     submit append vào note (target mất → drop); render replies thụt đầu
   - Tests: format + append/stale trong state_tests + Xvfb smoke
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+- Verified: check + clippy 0 + fmt + `cargo test -p base -p desktop`
   xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8c1 (`c0aa3b7`):
   - `DiffNote.end_line` + format `L12-L18` + pure `resolve_range`
@@ -83,7 +88,7 @@ glossary + roadmap). History CH còn trong git.
   - UI: click 1 đặt anchor (+ hint composer), click 2 tạo range;
     submit/render/composer hiển thị range
   - Tests: format + state machine trong state_tests + Xvfb smoke
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+- Verified: check + clippy 0 + fmt + `cargo test -p base -p desktop`
   xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8b (`c78e536` + `1c910b0`):
   - M8b0: `file_rows` đọc cả git-shape `{raw,files}` → 1 file block
@@ -92,7 +97,7 @@ glossary + roadmap). History CH còn trong git.
     trước, rồi updated cũ nhất; main cạnh tranh bình đẳng; sid mồ côi
     chìm đáy; thay `sids.sort()` + main-first cũ trong `render_diff`
   - Tests: queue order/scope-fair/sink-unknown (state_tests) + Xvfb smoke
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-core -p ade-ui`
+- Verified: check + clippy 0 + fmt + `cargo test -p base -p desktop`
   xanh + Xvfb smoke (cửa sổ hiện, log sạch).
 - M8a (`41ca7d1`, trên branch `feat/m7-fleet-reliability`):
   - Core: `Hunk` + `split_hunks` (pure) + `apply_hunks` (dựng patch tối
@@ -100,7 +105,7 @@ glossary + roadmap). History CH còn trong git.
   - `Command::ApplyHunks { file, hunks }` → apply vào main checkout +
     báo kết quả qua error strip
   - Diff tab: toggle `☐/☑` mỗi dòng `@@` + nút `Apply N hunk(s) → main`
-    (picks trong `AdeApp.hunk_picks`, clear sau khi gửi)
+    (picks trong `DioneApp.hunk_picks`, clear sau khi gửi)
   - Tests: split/subset/conflict/bad-input (worktree 13/13)
 - Verified: check + clippy 0 + fmt + tests 4 crates xanh + Xvfb smoke
   (cửa sổ hiện, log sạch). Lưu ý: 2 lần fail lẻ `microvm` khi 4 crate
@@ -113,8 +118,8 @@ glossary + roadmap). History CH còn trong git.
     `task already open` trước khi dựng backend (không side-effect)
   - Tests: pin-base qua remote bare local (A vs B), fallback HEAD,
     dup slug inbox + driver
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-core
-  -p ade-agent -p ade-workspace` xanh (worktree 9/9).
+- Verified: check + clippy 0 + fmt + `cargo test -p base
+  -p agent -p workspace` xanh (worktree 9/9).
 - M7c (`2b73118`, data-only UI):
   - `Task { parent, summary }` + `with_parent/with_summary` + `child()`
     (id/budget mới, kế thừa summary + limit; grandchild trỏ cha trực tiếp)
@@ -124,16 +129,16 @@ glossary + roadmap). History CH còn trong git.
     `open_child_task`; Reclaim vẫn log-only (auto-respawn chờ callsite
     production `rt.fleet()`)
   - Tests: child/parent/summary, tail+cap, snapshot/đè-tay, seam, child flow
-- Verified: check + clippy 0 + fmt + `cargo test -p ade-workspace
-  -p ade-agent -p ade-core` xanh.
+- Verified: check + clippy 0 + fmt + `cargo test -p workspace
+  -p agent -p base` xanh.
 - M7b-UI (`aabacc1`):
   - Pure helpers `fleet_dot` (blocked → đỏ, đè mọi state) + `blocked_task_in`
     (parse TaskId từ `fleet: blocked {id}`) + 3 tests
   - Nút `↻` mỗi worktree row bị blocked (gửi `Command::RetryTask`) + nút
     `↻ retry` ở error strip (resolve slug từ message → `store.blocked`;
     tự ẩn sau retry)
-  - Verified: `cargo test -p ade-ui` 13 passed + Xvfb smoke (cửa sổ
-    `ADE — Agentic IDE` 1440x900 hiện, log sạch)
+  - Verified: `cargo test -p desktop` 13 passed + Xvfb smoke (cửa sổ
+    `Dione — Agentic IDE` 1440x900 hiện, log sạch)
 - M7b-core (`3427842`, Host-only, chưa UI):
   - `Store.blocked: BTreeMap<TaskId, slug>` + `mark/is/clear_blocked_by_slug`
     (in-memory; restart rebuild từ sweep mới)
@@ -143,7 +148,7 @@ glossary + roadmap). History CH còn trong git.
   - Tests: mirror round-trip, slug mapping, quiet-sau-block, retry→silent,
     `supervisor_retry_reset`
 - Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test -p ade-core -p ade-agent -p ade-workspace` xanh.
+  sạch + `cargo test -p base -p agent -p workspace` xanh.
 - M7a retry budget (`f61982f` + `2421649`, Host-only, không KVM vẫn xanh):
   - `Task { failure_limit = 2, failure_count, status: Active/Retrying/Blocked }`
     + `with_failure_limit`/`note_failure`/`note_success`/`retry_reset`
@@ -156,7 +161,7 @@ glossary + roadmap). History CH còn trong git.
   - Tests: budget default/custom/clamp, sweep threshold, forward errors,
     chain đầy đủ inbox→sweep→blocked (`inbox_chain_blocks_erroring_task…`)
 - Verified: `cargo check --workspace` + clippy 0 warnings + `cargo fmt`
-  sạch + `cargo test -p ade-workspace -p ade-agent -p ade-core` xanh.
+  sạch + `cargo test -p workspace -p agent -p base` xanh.
 - Trước đó W1–W3 + M5-live prep (không KVM vẫn xanh, 132 passed):
   - `open_task_with` (provider ngoài + nhánh terminal) — Lab 4 fan-out
     headless xanh; callsite production (`rt.fleet()`) còn lại
@@ -169,7 +174,7 @@ glossary + roadmap). History CH còn trong git.
 ## Trước đó (M5, đã verify)
 
 - `090e4e8` → `b4155a6` feat(m5b/m5f): `ExternalSbxBackend` scaffold +
-  fake-shim + live tests `ADE_LIVE_SBX=1` (validate sớm VmManager/Provider)
+  fake-shim + live tests `DIONE_LIVE_SBX=1` (validate sớm VmManager/Provider)
 - `4092f7a` feat(m5c): `EphemeralKey` (ssh-keygen, wipe on drop) + image
   pull/verify (curl resume + sha256; test bắt bug verify-bool bị nuốt)
 - `d09d6a3` feat(m5d): `VmManager` (key canonical path, timeouts boot
@@ -180,7 +185,7 @@ glossary + roadmap). History CH còn trong git.
   vsock proxy (libc AF_VSOCK, bridge test) + cloud-init seed +
   `CloudHypervisorBackend` (create/boot/shutdown/delete/info,
   virtiofsd spawn, Drop kill)
-- `2345604` feat(m5h): live test `ADE_LIVE_VM=1` (Lab 2 boot + Lab 3
+- `2345604` feat(m5h): live test `DIONE_LIVE_VM=1` (Lab 2 boot + Lab 3
   mount 2 chiều, SKIP-pass mặc định)
 - `a3bb7bc` feat(m5i): UI `vm_badge` (label/dot + Fleet badge + banner
   Host mode khi mất KVM, Lab 6) — phát hiện pitfall `#[test]` vs
@@ -217,24 +222,24 @@ glossary + roadmap). History CH còn trong git.
      vẫn blocking (chưa có defer path); Xvfb sạch
    - DONE UX8 (`cad3420`): polish cuối — `fmt_money`, model 1 nút cycle,
      vm_badge 11px + cap 28, terminal filter case-insensitive, chat
-     empty-state; ade-ui 29 passed; Xvfb sạch
+     empty-state; desktop 29 passed; Xvfb sạch
  - M8-UX CLOSED (UX0–UX8 trên main: shell IDE 4 vùng + tab-per-worktree,
    composer single-mode, review gom nút, palette ⌘K, permission phân cấp).
 - DONE T1 (`b8a4643`): surface colors mode-aware (dark giữ legacy constants
   có test khóa, light neutrals); chưa đổi behavior (chưa ai gọi change).
 - DONE T2 (`6ab7b5e`): theme toggle (nút ☀/☾ topbar + 2 actions palette,
-  pin vào config.toml, resolve ADE_THEME > config > system ở startup);
-  ade-core 64 + ade-ui 31 passed; Xvfb smoke cả 2 mode sạch.
+  pin vào config.toml, resolve DIONE_THEME > config > system ở startup);
+  base 64 + desktop 31 passed; Xvfb smoke cả 2 mode sạch.
 - DONE W1 (`9da3ea9`): window chrome — custom CSD TitleBar (kéo +
   min/max/close, chỉ khi Wayland Client-decorations; X11 giữ native
-  bar) + min size 640×480 (verify trong WM hints) + app_id `ade`;
+  bar) + min size 640×480 (verify trong WM hints) + app_id `dione`;
   Xvfb smoke sạch (title + class + hints).
 - DONE W2 (`5ec83a5`): fix gốc cửa sổ trần Wayland — `window_decorations
   None` khiến GPUI request Server, state kẹt Server khi compositor không
   flip/không vẽ SSD; request Client tường minh → TitleBar hiện
   deterministic (KDE/X11-no-compositor vẫn fallback native; MOTIF hints
   đã verify giữ decorations). User nghiệm thu trên Wayland thật.
-2. Live lần đầu trên máy podman: Lab 2/3 (`ADE_LIVE_PODMAN=1`), re-verify
+2. Live lần đầu trên máy podman: Lab 2/3 (`DIONE_LIVE_PODMAN=1`), re-verify
    bind-mount `-v …:rw,Z` + user + image pin (máy này không podman nên
    live test SKIP-pass).
 2. M6 còn lại: Open-Workspace container wiring production (`rt.fleet()`

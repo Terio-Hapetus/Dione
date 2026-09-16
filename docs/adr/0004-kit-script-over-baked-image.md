@@ -22,5 +22,5 @@ bằng **kit script** (`kits/<ten>.sh`), versioned riêng.
 ## Hệ quả
 
 - `kits/` + `agents.toml` là registry agent, có lab probe riêng.
-- Image versioned riêng (`ade-ubuntu-24.04:vX`), checksum verify lúc pull.
+- Image versioned riêng (`dione-ubuntu-24.04:vX`), checksum verify lúc pull.
 - Không cache credentials trong image/layer.

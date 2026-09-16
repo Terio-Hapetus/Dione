@@ -10,7 +10,7 @@ và dùng để validate `VmManager` + `MicroVm` provider.
 
 ## Quyết định
 
-**Xóa `ExternalSbxBackend`.** `ade-vm` chỉ còn `{ CloudHypervisor, Mock }`.
+**Xóa `ExternalSbxBackend`.** `vm` chỉ còn `{ CloudHypervisor, Mock }`.
 
 ## Vì sao
 
@@ -19,7 +19,7 @@ và dùng để validate `VmManager` + `MicroVm` provider.
 - Giữ 2 backend thật = nhân đôi ma trận test live mà lợi ích duy nhất
   (có VM thật sớm) đã đạt được ở bước validate.
 - Giàn giáo đã hoàn thành vai trò: fake-shim tests ghim cú pháp CLI,
-  live tests `ADE_LIVE_SBX=1` còn trong git history (`090e4e8`,
+  live tests `DIONE_LIVE_SBX=1` còn trong git history (`090e4e8`,
   `6d20628`) để tham khảo khi cần.
 
 ## Hệ quả
