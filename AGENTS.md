@@ -1,4 +1,4 @@
-# ADE — Agentic IDE
+# Dione — Agentic IDE
 
 Native Linux desktop app (Rust + GPUI) to run and inspect AI coding agents.
 One task = one isolated git worktree, many agents in parallel, inline diff
@@ -42,7 +42,7 @@ env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" 
 
 ## Docs map
 
-- `docs/VISION.md` — what ADE is / is not, success criteria
+- `docs/VISION.md` — what Dione is / is not, success criteria
 - `docs/ARCHITECTURE.md` — crates, Store, Commands, runtime loop, UI
 - `docs/ROADMAP.md` — M0/M1 done, M2 tasks, out of scope
 - `docs/STATUS.md` — living file: current position, next up, blockers

@@ -2,7 +2,7 @@
 
 ## Nguyên tắc
 
-- ADE mặc định là **Terminal + Chat GUI**. Agent là backend cắm vào.
+- Dione mặc định là **Terminal + Chat GUI**. Agent là backend cắm vào.
 - Không bundle model. BYO subscription/key. Phát hiện binary, user chọn per-task.
 - Chat và Terminal cùng cwd = worktree. Agent không biết mình ở Host hay container.
 

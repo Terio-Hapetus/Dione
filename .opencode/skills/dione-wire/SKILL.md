@@ -3,7 +3,7 @@ name: dione-wire
 description: opencode 1.18 wire shapes and SSE discipline for base runtime work
 ---
 
-# ADE wire notes
+# Dione wire notes
 
 Load this skill when touching `crates/base` runtime/state/server.
 

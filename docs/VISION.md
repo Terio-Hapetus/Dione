@@ -1,8 +1,8 @@
-# ADE Vision
+# Dione Vision
 
 ## What it is
 
-ADE (Agentic IDE) is a native Linux desktop app for **running and inspecting
+Dione (Agentic IDE) is a native Linux desktop app for **running and inspecting
 AI coding agents** — not for typing code yourself. The human directs and
 judges; agents produce the code.
 
@@ -37,5 +37,5 @@ loses track of which agent needs attention.
 ## Success criteria
 
 - M2: 3 agents run in parallel worktrees without file collisions; every
-  agent completion is reviewable and mergeable from inside ADE.
+  agent completion is reviewable and mergeable from inside Dione.
 - Review capacity (not typing speed) is the bottleneck the tool optimizes.

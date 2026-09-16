@@ -1,15 +1,15 @@
-# Từ vựng ADE (tiếng Việt, ví dụ đời thường)
+# Từ vựng Dione (tiếng Việt, ví dụ đời thường)
 
 Dành cho người không phải kỹ sư phần mềm. Đọc 1 lần, tra cứu khi gặp từ lạ.
 
 ## Host — máy bạn đang ngồi
 
-Máy vật lý chạy ADE UI. Giống như "nhà chính". Mặc định app chạy ở đây
+Máy vật lý chạy Dione UI. Giống như "nhà chính". Mặc định app chạy ở đây
 (terminal, SSH client, secrets). An toàn vì agent chưa chạy ở đây.
 
 ## MicroVM — căn phòng cách ly trong nhà (legacy, đã thay bằng container — xem ADR-0006)
 
-Máy ảo siêu nhẹ: có **kernel riêng** (não riêng). ADE từng dùng
+Máy ảo siêu nhẹ: có **kernel riêng** (não riêng). Dione từng dùng
 Cloud Hypervisor, nay dùng podman (share kernel, nhẹ hơn nhiều).
 Khác container (container share kernel = share não với host).
 
@@ -17,7 +17,7 @@ Khác container (container share kernel = share não với host).
 
 Agent chạy trong container; bind-mount duy nhất là workspace
 (`/workspace:rw`), không sờ được host. Share kernel với host nên nhẹ
-hơn VM rất nhiều. Không có `podman` → ADE rớt về Host mode + banner.
+hơn VM rất nhiều. Không có `podman` → Dione rớt về Host mode + banner.
 
 ## KVM — chìa khóa vào phòng (legacy, không cần nữa)
 
@@ -28,7 +28,7 @@ bằng `which podman`.
 
 ## vsock — ống nói chuyện host ↔ VM (legacy, nay là `podman exec`)
 
-## SSH — chìa khóa + ống nói (legacy trong ADE, nay là `podman exec -it`)
+## SSH — chìa khóa + ống nói (legacy trong Dione, nay là `podman exec -it`)
 
 Mở terminal vào container: `podman exec -it <name> sh`. Không key,
 không `authorized_keys`, không reuse gì cả.
@@ -36,18 +36,18 @@ không `authorized_keys`, không reuse gì cả.
 ## Worktree — bàn làm việc riêng
 
 `git worktree add` checkout 1 branch ra 1 thư mục riêng.
-ADE: `<repo>/.dione-worktrees/<slug>` + branch `ade/<slug>`.
+Dione: `<repo>/.dione-worktrees/<slug>` + branch `ade/<slug>`.
 1 task = 1 worktree = N agent chạy song song không giẫm file nhau.
 
 ## Workspace — cả tầng làm việc
 
-1 repo + cấu hình + worktrees. ADE: **1 container / 1 workspace**
+1 repo + cấu hình + worktrees. Dione: **1 container / 1 workspace**
 (worktrees nằm trong bind-mount của container).
 
 ## Agent — người thợ trong phòng
 
 CLI bất kỳ chạy trong terminal (Claude Code, Codex, OpenCode, Gemini…).
-ADE không bundle agent, không khóa agent mặc định (BYO).
+Dione không bundle agent, không khóa agent mặc định (BYO).
 Thêm agent mới = thêm 1 kit script (xem `AGENT-ANY.md`).
 
 ## Kit script — công thức lắp thợ

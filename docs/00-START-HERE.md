@@ -1,4 +1,4 @@
-# ADE Docs — bắt đầu từ đâu (5 phút)
+# Dione Docs — bắt đầu từ đâu (5 phút)
 
 Bạn không phải kỹ sư phần mềm? Đọc theo thứ tự này, mỗi file là 1 bước nhỏ.
 
@@ -6,7 +6,7 @@ Bạn không phải kỹ sư phần mềm? Đọc theo thứ tự này, mỗi fi
 
 1. `00-START-HERE.md` (file này) — bản đồ tổng.
 2. `GLOSSARY-VI.md` — từ vựng: MicroVM, KVM, virtiofs, vsock, SSH, worktree… bằng tiếng Việt + ví dụ đời thường.
-3. `VISION.md` — ADE là gì / không là gì (giữ 1 dev + Linux native).
+3. `VISION.md` — Dione là gì / không là gì (giữ 1 dev + Linux native).
 4. `ARCHITECTURE-v2.md` — sơ đồ lớn: Host → Workspace → MicroVM → Agent. Ai gọi ai.
 5. `WORKSPACE-VM.md` — spec chi tiết sandbox container (dành cho lúc code).
 6. `AGENT-ANY.md` — spec agent-agnostic: thêm agent mới trong 3 bước.

@@ -1,13 +1,13 @@
-# ADE agent registry example (M4b, Lab 4).
+# Dione agent registry example (M4b, Lab 4).
 #
 # Copy to ~/.config/dione/agents.toml, then uncomment the agents you use:
 #   mkdir -p ~/.config/dione && cp agents.toml.example ~/.config/dione/agents.toml
 #
-# Each entry: the binary ADE probes on PATH (green/red tick in the Agent
+# Each entry: the binary Dione probes on PATH (green/red tick in the Agent
 # picker) + the CLI flag carrying the prompt + the kit script installed
 # at container boot (see kits/).
 #
-# A missing file is fine — ADE runs with an empty registry.
+# A missing file is fine — Dione runs with an empty registry.
 
 # opencode ships with this repo's workflow (opencode serve backend).
 [agents.opencode]

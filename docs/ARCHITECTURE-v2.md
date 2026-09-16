@@ -1,4 +1,4 @@
-# ADE Architecture v2 (agent-agnostic + Workspace/Container)
+# Dione Architecture v2 (agent-agnostic + Workspace/Container)
 
 > ADR-0006: MicroVM → podman. "VM/guest/SSH/virtiofs" còn sót trong file
 > này nghĩa là container tương ứng (1 container / workspace, bind-mount).
@@ -10,7 +10,7 @@
 
 ```
 ┌─ Host (mặc định, Warp-like) ─────────────────────────┐
-│ ADE UI (GPUI) + local terminal (pty) + SSH client    │
+│ Dione UI (GPUI) + local terminal (pty) + SSH client    │
 │ secrets ở keychain host, chưa chạy agent ở đây       │
 └───────────────────────┬──────────────────────────────┘
                         │ chỉ khi Open Workspace / Run Agent

@@ -1,11 +1,11 @@
 ---
 name: dione-workflow
-description: How to work on ADE — plan/build modes, verify gates, commit slices, STATUS updates
+description: How to work on Dione — plan/build modes, verify gates, commit slices, STATUS updates
 ---
 
-# ADE workflow
+# Dione workflow
 
-Load this skill when starting or finishing any ADE task.
+Load this skill when starting or finishing any Dione task.
 
 ## Modes
 

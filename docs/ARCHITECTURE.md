@@ -1,4 +1,4 @@
-# ADE Architecture
+# Dione Architecture
 
 ## Crates
 

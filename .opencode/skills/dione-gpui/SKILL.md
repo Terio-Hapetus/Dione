@@ -1,9 +1,9 @@
 ---
 name: dione-gpui
-description: GPUI 0.2.2 and gpui-component 0.5.1 API pitfalls for the ADE desktop UI
+description: GPUI 0.2.2 and gpui-component 0.5.1 API pitfalls for the Dione desktop UI
 ---
 
-# ADE GPUI notes
+# Dione GPUI notes
 
 Load this skill when touching `apps/desktop`.
 
