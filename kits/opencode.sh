@@ -3,14 +3,14 @@
 # Kits run at container boot via PodmanProvider::exec, never baked into
 # the image (ADR-0006: pin version, rollback = pin version).
 #
-#   ADE_OPENCODE_VERSION  exact version to install ("1.18.30"), or unset/
+#   DIONE_OPENCODE_VERSION  exact version to install ("1.18.30"), or unset/
 #                         "latest" for the newest release.
 #
 # Strategy: keep a matching install, else prefer npm (pinnable), else the
 # official install script (latest only). Every path ends in `verify`.
 set -eu
 
-want="${ADE_OPENCODE_VERSION:-latest}"
+want="${DIONE_OPENCODE_VERSION:-latest}"
 
 installed_version() {
   if command -v opencode >/dev/null 2>&1; then

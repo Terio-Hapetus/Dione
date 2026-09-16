@@ -15,7 +15,7 @@ use gpui_component::{
 
 use super::sidebar::fleet_rank;
 use super::theme::{TEXT_META, empty_state, muted_for};
-use crate::app::{AdeApp, RightTab};
+use crate::app::{DioneApp, RightTab};
 
 /// A runnable palette entry. Labels carry the matching text; `hint`
 /// names the group (go / review / fleet / view).
@@ -55,7 +55,7 @@ pub(crate) fn palette_match<'a>(
         .collect()
 }
 
-impl AdeApp {
+impl DioneApp {
     /// Every primary action, grouped. Worktree entries follow the same
     /// attention order as the sidebar/tabs.
     pub(crate) fn palette_items(&self) -> Vec<PaletteItem> {

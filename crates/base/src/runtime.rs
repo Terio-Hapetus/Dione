@@ -86,7 +86,7 @@ pub fn spawn(config: AppConfig) -> RuntimeHandle {
             .worker_threads(2)
             .enable_all()
             .build()
-            .expect("tokio runtime for ADE");
+            .expect("tokio runtime for Dione");
         rt.block_on(outer_loop(config, rx, slot, inbox));
     });
 

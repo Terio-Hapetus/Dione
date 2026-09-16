@@ -5,9 +5,9 @@ use gpui_component::{
 };
 
 use super::theme::{TOP_H, bad_color, fmt_money, muted_for, ok_color, truncate, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn render_top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let dark = cx.theme().is_dark();
         let (dot, status_text) = match &self.store.conn {
@@ -132,7 +132,7 @@ mod tests {
     fn write_agents(body: &str) -> std::path::PathBuf {
         static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let p = std::env::temp_dir().join(format!("ade-picker-{n}.toml"));
+        let p = std::env::temp_dir().join(format!("dione-picker-{n}.toml"));
         std::fs::write(&p, body).unwrap();
         p
     }
@@ -142,14 +142,14 @@ mod tests {
         let (names, ok): (Vec<String>, BTreeMap<String, bool>) = load_agent_statuses(None);
         assert!(names.is_empty());
         assert!(ok.is_empty());
-        let p = std::env::temp_dir().join("ade-picker-does-not-exist.toml");
+        let p = std::env::temp_dir().join("dione-picker-does-not-exist.toml");
         assert!(load_agent_statuses(Some(&p)).0.is_empty());
     }
 
     #[test]
     fn ticks_reflect_probe_results() {
         let p = write_agents(
-            "[agents.good]\nbin = \"sh\"\n[agents.bad]\nbin = \"ade-no-such-bin-xyz\"\n",
+            "[agents.good]\nbin = \"sh\"\n[agents.bad]\nbin = \"dione-no-such-bin-xyz\"\n",
         );
         let (names, ok) = load_agent_statuses(Some(&p));
         assert_eq!(names, vec!["bad".to_string(), "good".to_string()]);

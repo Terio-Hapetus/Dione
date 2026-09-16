@@ -12,9 +12,9 @@ use gpui_component::{
 };
 
 use super::theme::{TEXT_META, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
-impl AdeApp {
+impl DioneApp {
     /// Context bar for the pending review note / reply / range anchor.
     /// `None` when the composer is in plain chat mode.
     pub(crate) fn render_note_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {

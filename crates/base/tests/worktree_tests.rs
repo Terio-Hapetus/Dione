@@ -23,7 +23,7 @@ fn init_repo() -> PathBuf {
         .unwrap()
         .as_nanos();
     let c = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!("ade-wt-test-{n}-{c}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dione-wt-test-{n}-{c}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     sh(&dir, &["init", "-b", "main"]);
     sh(&dir, &["config", "user.email", "t@t"]);
@@ -39,7 +39,13 @@ fn cleanup(dir: &Path) {
     let _ = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args(["worktree", "remove", "--force", "--force", ".ade-worktrees"])
+        .args([
+            "worktree",
+            "remove",
+            "--force",
+            "--force",
+            ".dione-worktrees",
+        ])
         .output();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -98,14 +104,14 @@ async fn create_adds_branch_and_dir() {
     let repo = init_repo();
     let r = worktree::create(&repo, "Feat Auth!").await.unwrap();
     assert_eq!(r.slug, "feat-auth");
-    assert_eq!(r.branch, "ade/feat-auth");
+    assert_eq!(r.branch, "dione/feat-auth");
     assert!(r.path.join("f.txt").exists());
 
     let infos = worktree::list(&repo).await.unwrap();
     assert!(
         infos
             .iter()
-            .any(|i| i.path == r.path && i.branch.as_deref() == Some("ade/feat-auth"))
+            .any(|i| i.path == r.path && i.branch.as_deref() == Some("dione/feat-auth"))
     );
 
     worktree::remove(&repo, "feat-auth").await.unwrap();
@@ -150,16 +156,16 @@ async fn prune_drops_merged_orphan_branch() {
         &["worktree", "remove", "--force", &r.path.to_string_lossy()],
     );
     sh(&repo, &["checkout", "-q", "main"]);
-    sh(&repo, &["merge", "-q", "--ff-only", "ade/feat-gone"]);
+    sh(&repo, &["merge", "-q", "--ff-only", "dione/feat-gone"]);
     worktree::prune(&repo).await.unwrap();
     let branches = std::process::Command::new("git")
         .arg("-C")
         .arg(&repo)
-        .args(["branch", "--list", "ade/*"])
+        .args(["branch", "--list", "dione/*"])
         .output()
         .unwrap();
     assert!(
-        !String::from_utf8_lossy(&branches.stdout).contains("ade/feat-gone"),
+        !String::from_utf8_lossy(&branches.stdout).contains("dione/feat-gone"),
         "orphan branch should be pruned"
     );
     cleanup(&repo);
@@ -190,11 +196,11 @@ async fn merge_winner_brings_files_and_cleans_up() {
     let branches = std::process::Command::new("git")
         .arg("-C")
         .arg(&repo)
-        .args(["branch", "--list", "ade/*"])
+        .args(["branch", "--list", "dione/*"])
         .output()
         .unwrap();
     assert!(
-        !String::from_utf8_lossy(&branches.stdout).contains("ade/feat-win"),
+        !String::from_utf8_lossy(&branches.stdout).contains("dione/feat-win"),
         "branch should be gone after merge"
     );
     cleanup(&repo);
@@ -350,7 +356,7 @@ async fn create_branch_here_pins_agent_branch() {
     assert_eq!(name, "local/feat-br");
     assert_eq!(
         git_out(&repo, &["rev-parse", "local/feat-br"]),
-        git_out(&repo, &["rev-parse", "ade/feat-br"])
+        git_out(&repo, &["rev-parse", "dione/feat-br"])
     );
     // Collision, bad names, and missing source branches fail cleanly.
     assert!(
@@ -397,7 +403,7 @@ async fn hand_off_merges_but_keeps_worktree() {
     assert_eq!(std::fs::read_to_string(repo.join("ho.txt")).unwrap(), "h\n");
     // Worktree AND branch survive (unlike merge_winner).
     assert!(r.path.exists());
-    assert!(git_out(&repo, &["branch", "--list", "ade/feat-ho"]).contains("ade/feat-ho"));
+    assert!(git_out(&repo, &["branch", "--list", "dione/feat-ho"]).contains("dione/feat-ho"));
 
     worktree::remove(&repo, "feat-ho").await.unwrap();
     cleanup(&repo);

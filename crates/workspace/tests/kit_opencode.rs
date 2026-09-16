@@ -4,7 +4,7 @@
 //! a file) and `npm` (writes the version file + materialises the stub,
 //! like a real global install). The no-npm-latest branch would `curl`,
 //! so only the deterministic pinned branches run here; the live guest
-//! path is covered by `ADE_LIVE_KIT=1` on a KVM machine (Lab 2 setup).
+//! path is covered by `DIONE_LIVE_KIT=1` on a KVM machine (Lab 2 setup).
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ fn kit_path() -> PathBuf {
 fn uniq(name: &str) -> PathBuf {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    std::env::temp_dir().join(format!("ade-kit-{name}-{}-{n}", std::process::id()))
+    std::env::temp_dir().join(format!("dione-kit-{name}-{}-{n}", std::process::id()))
 }
 
 fn write_exe(path: &Path, body: &str) {
@@ -96,7 +96,7 @@ echo "$v" > "$FAKE_VERSION_FILE"
             self.version_file.to_string_lossy().as_ref(),
         );
         if let Some(v) = want {
-            cmd.env("ADE_OPENCODE_VERSION", v);
+            cmd.env("DIONE_OPENCODE_VERSION", v);
         }
         let out = cmd.output().expect("run kit script");
         let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();

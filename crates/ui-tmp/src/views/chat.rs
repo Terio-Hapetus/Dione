@@ -5,9 +5,9 @@ use gpui_component::{ActiveTheme as _, label::Label, text::TextView};
 use super::theme::{
     bubble_bg, empty_state, fmt_money, muted_for, ok_color, soft_border_for, truncate,
 };
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
-impl AdeApp {
+impl DioneApp {
     /// M3d: agent-agnostic chat. Reads only `transcripts`/`costs` —
     /// no opencode wire types.
     pub(crate) fn render_chat(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {

@@ -3,9 +3,9 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
 use super::theme::{REVIEW_W, fmt_tok, muted_for, ok_color, truncate};
-use crate::app::{AdeApp, RightTab};
+use crate::app::{DioneApp, RightTab};
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn render_right_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs = [
             (RightTab::Context, "context"),
@@ -71,7 +71,7 @@ impl AdeApp {
     }
 }
 
-pub(crate) fn context_view(store: &Store, cx: &mut Context<AdeApp>) -> AnyElement {
+pub(crate) fn context_view(store: &Store, cx: &mut Context<DioneApp>) -> AnyElement {
     use base::context::{SectionKind, compile};
     let dark = cx.theme().is_dark();
     let view = compile(store);

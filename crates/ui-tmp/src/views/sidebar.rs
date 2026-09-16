@@ -8,7 +8,7 @@ use super::theme::{
     ROW_H, SIDEBAR_W, TEXT_META, TEXT_SECONDARY, active_bg, bad_color, empty_state, muted_for,
     ok_color, status_glyph, truncate, warn_color,
 };
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
 /// Fleet sort rank (pure: unit-tested). Blocked first, then needs-you,
 /// then working; idle/done sink to the bottom, alphabetical inside a rank.
@@ -47,7 +47,7 @@ pub(crate) fn blocked_task_in(msg: &str) -> Option<TaskId> {
         .ok()
 }
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn session_dot(&self, id: &str) -> Option<Rgba> {
         if self.store.has_pending(id) {
             return Some(warn_color());

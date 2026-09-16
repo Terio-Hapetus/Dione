@@ -1,14 +1,14 @@
 //! Pure worktree helpers (M2 base, no git side effects yet).
 //!
 //! Conventions (cf. Orca / Hermes `-w` / Codex App):
-//! - path: `<repo>/.ade-worktrees/<slug>`
-//! - branch: `ade/<slug>`
+//! - path: `<repo>/.dione-worktrees/<slug>`
+//! - branch: `dione/<slug>`
 //! - max ~15 managed worktrees, prune stale on startup.
 
 use std::path::{Path, PathBuf};
 
-pub const WORKTREE_DIR_NAME: &str = ".ade-worktrees";
-pub const BRANCH_PREFIX: &str = "ade/";
+pub const WORKTREE_DIR_NAME: &str = ".dione-worktrees";
+pub const BRANCH_PREFIX: &str = "dione/";
 pub const MAX_MANAGED_WORKTREES: usize = 15;
 /// Optional file in the repo root listing gitignored paths (one per line)
 /// to copy into fresh worktrees (cf. Hermes/Cline `.worktreeinclude`).
@@ -122,8 +122,8 @@ pub async fn resolve_base(repo: &Path) -> &'static str {
     }
 }
 
-/// Create a worktree at `<repo>/.ade-worktrees/<slug>` on branch
-/// `ade/<slug>` from the shared base ([`resolve_base`]), then copy
+/// Create a worktree at `<repo>/.dione-worktrees/<slug>` on branch
+/// `dione/<slug>` from the shared base ([`resolve_base`]), then copy
 /// `.worktreeinclude` entries into it.
 pub async fn create(repo: &Path, raw_slug: &str) -> Result<WorktreeRecord, WorktreeError> {
     let slug = normalize_slug(raw_slug);
@@ -217,7 +217,7 @@ pub async fn git_diff(path: &Path) -> Result<GitDiff, WorktreeError> {
     Ok(GitDiff { files, raw })
 }
 
-/// Merge `ade/<slug>` into the repo checkout with `--no-ff`, then remove
+/// Merge `dione/<slug>` into the repo checkout with `--no-ff`, then remove
 /// the worktree. Fails cleanly on a dirty repo or conflicts so the user can
 /// resolve by hand; nothing is deleted in that case.
 pub async fn merge_winner(repo: &Path, slug: &str) -> Result<String, WorktreeError> {
@@ -250,7 +250,7 @@ async fn merge_branch(repo: &Path, slug: &str, message: &str) -> Result<String, 
         .map(|out| out.trim().to_string())
 }
 
-/// Create a local branch `name` at `ade/<slug>` (M8d "create branch
+/// Create a local branch `name` at `dione/<slug>` (M8d "create branch
 /// here"): keep a named pointer to the agent's work for local follow-up.
 /// Fails cleanly on bad names, missing source branches, or collisions.
 pub async fn create_branch_here(
@@ -373,13 +373,13 @@ async fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> Result<String
     }
 }
 
-/// `git worktree prune` plus deletion of merged `ade/*` orphan branches
+/// `git worktree prune` plus deletion of merged `dione/*` orphan branches
 /// whose worktree directory is gone.
 pub async fn prune(repo: &Path) -> Result<(), WorktreeError> {
     run_git(repo, &["worktree", "prune"]).await?;
     let infos = list(repo).await.unwrap_or_default();
     let live_branches: Vec<&str> = infos.iter().filter_map(|i| i.branch.as_deref()).collect();
-    let merged = run_git(repo, &["branch", "--merged", "HEAD", "--list", "ade/*"]).await?;
+    let merged = run_git(repo, &["branch", "--merged", "HEAD", "--list", "dione/*"]).await?;
     for line in merged.lines() {
         let b = line.trim().trim_start_matches("* ").trim();
         if b.is_empty() || live_branches.contains(&b) {
@@ -534,8 +534,11 @@ mod tests {
         let repo = Path::new("/repo");
         let r = WorktreeRecord::new(repo, "Feat Auth 3f2a").unwrap();
         assert_eq!(r.slug, "feat-auth-3f2a");
-        assert_eq!(r.branch, "ade/feat-auth-3f2a");
-        assert_eq!(r.path, PathBuf::from("/repo/.ade-worktrees/feat-auth-3f2a"));
+        assert_eq!(r.branch, "dione/feat-auth-3f2a");
+        assert_eq!(
+            r.path,
+            PathBuf::from("/repo/.dione-worktrees/feat-auth-3f2a")
+        );
     }
 
     #[test]
@@ -545,7 +548,7 @@ mod tests {
 
     #[test]
     fn detects_worktree_path() {
-        assert!(is_worktree_path(Path::new("/repo/.ade-worktrees/feat-x")));
+        assert!(is_worktree_path(Path::new("/repo/.dione-worktrees/feat-x")));
         assert!(!is_worktree_path(Path::new("/repo/src/main.rs")));
     }
 }

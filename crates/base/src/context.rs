@@ -44,7 +44,7 @@ pub fn compile(store: &Store) -> ContextView {
     view.sections.push(ContextSection {
         label: "system prompt".into(),
         kind: SectionKind::System,
-        detail: "injected by the agent (not exposed to ADE)".into(),
+        detail: "injected by the agent (not exposed to Dione)".into(),
         est_tokens: 2_000,
     });
 

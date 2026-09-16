@@ -10,9 +10,9 @@ use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Labe
 
 use super::sidebar::fleet_rank;
 use super::theme::{TEXT_SECONDARY, muted_for, status_glyph};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
-impl AdeApp {
+impl DioneApp {
     /// Tab bar pinned above the chat/terminal column (UX3).
     pub(crate) fn render_worktree_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let dark = cx.theme().is_dark();

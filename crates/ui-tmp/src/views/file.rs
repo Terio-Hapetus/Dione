@@ -14,7 +14,7 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
 use super::theme::{empty_state, muted_for, truncate, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 use crate::container_thread::workspace_root;
 
 pub(crate) const MAX_FILE_BYTES: usize = 256 * 1024;
@@ -122,7 +122,7 @@ pub(crate) fn open_path(store: &Store, scope: &str, relpath: &str) -> OpenFile {
     }
 }
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn render_file(&self, cx: &mut Context<Self>) -> AnyElement {
         let dark = cx.theme().is_dark();
         let Some(f) = self.open_file.as_ref() else {
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn load_file_rejects_binary_and_caps() {
-        let dir = std::env::temp_dir().join(format!("ade-file-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("dione-file-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("bin.dat"), [0u8, 1, 2]).unwrap();

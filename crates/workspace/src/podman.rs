@@ -155,7 +155,7 @@ mod tests {
         fn new(stdout: &str, code: i32) -> Self {
             use std::sync::atomic::Ordering;
             let dir = std::env::temp_dir().join(format!(
-                "ade-fake-podman-{}-{}",
+                "dione-fake-podman-{}-{}",
                 std::process::id(),
                 NEXT_FAKE.fetch_add(1, Ordering::SeqCst)
             ));
@@ -191,7 +191,7 @@ mod tests {
     }
 
     fn provider(fake: &FakePodman) -> PodmanProvider {
-        PodmanProvider::new("ade-test", Path::new("/repo")).with_bin(fake.bin.clone())
+        PodmanProvider::new("dione-test", Path::new("/repo")).with_bin(fake.bin.clone())
     }
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(out.stdout, "hello\n");
         let argv = fake.args();
         assert!(
-            argv.contains("exec -w /workspace ade-test echo hi there"),
+            argv.contains("exec -w /workspace dione-test echo hi there"),
             "{argv}"
         );
     }
@@ -283,7 +283,7 @@ mod tests {
             argv.contains("exec -it -w /workspace/sub-missing"),
             "{argv}"
         );
-        assert!(argv.contains("ade-test sh"), "{argv}");
+        assert!(argv.contains("dione-test sh"), "{argv}");
         // No SSH legacy: no -i/-p/-L/user@host anywhere.
         assert!(!argv.contains("-L"), "{argv}");
         assert!(!argv.contains('@'), "{argv}");

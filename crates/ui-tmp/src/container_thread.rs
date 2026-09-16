@@ -42,13 +42,13 @@ pub struct ContainerReport {
     pub state: ContainerState,
 }
 
-/// Workspace root for a checkout: parent of `.ade-worktrees` when nested,
+/// Workspace root for a checkout: parent of `.dione-worktrees` when nested,
 /// else the path itself. Containers converge to 1-per-workspace; until
 /// then each worktree maps to its repo this way.
 pub(crate) fn workspace_root(path: &Path) -> PathBuf {
     let mut cur: Option<&Path> = Some(path);
     while let Some(p) = cur {
-        if p.file_name().is_some_and(|n| n == ".ade-worktrees")
+        if p.file_name().is_some_and(|n| n == ".dione-worktrees")
             && let Some(parent) = p.parent()
         {
             return parent.to_path_buf();
@@ -182,11 +182,11 @@ mod tests {
     #[test]
     fn workspace_root_collapses_worktrees() {
         assert_eq!(
-            workspace_root(Path::new("/repo/.ade-worktrees/feat-a")),
+            workspace_root(Path::new("/repo/.dione-worktrees/feat-a")),
             PathBuf::from("/repo")
         );
         assert_eq!(
-            workspace_root(Path::new("/repo/.ade-worktrees")),
+            workspace_root(Path::new("/repo/.dione-worktrees")),
             PathBuf::from("/repo")
         );
         assert_eq!(workspace_root(Path::new("/repo")), PathBuf::from("/repo"));

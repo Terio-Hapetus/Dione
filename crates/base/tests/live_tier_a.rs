@@ -1,7 +1,7 @@
 //! Tier A live check (M2 exit gate): real `opencode serve` + real git worktrees,
 //! no LLM prompt. Run with:
 //! `cargo test -p base --features integration-tests --test live_tier_a`
-//! Tier B (real prompt, spends quota) is opt-in via `ADE_LIVE_PROMPT=1`
+//! Tier B (real prompt, spends quota) is opt-in via `DIONE_LIVE_PROMPT=1`
 //! and stays a manual step (see docs/STATUS.md).
 
 #![cfg(feature = "integration-tests")]
@@ -28,7 +28,7 @@ fn git(repo: &Path, args: &[&str]) {
 }
 
 fn init_repo() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("ade-tier-a-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("dione-tier-a-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     git(&dir, &["init", "-b", "main"]);
@@ -46,10 +46,10 @@ fn init_repo() -> PathBuf {
         ],
     );
     // opencode serve expects a project dir; a marker file is enough.
-    // NOTE: `.ade-worktrees/` must be git-ignored, otherwise the merge
+    // NOTE: `.dione-worktrees/` must be git-ignored, otherwise the merge
     // dirty-guard (correctly) refuses to merge — same rule as M2e.
     std::fs::write(dir.join("README.md"), "# tier-a\n").unwrap();
-    std::fs::write(dir.join(".gitignore"), ".ade-worktrees/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), ".dione-worktrees/\n").unwrap();
     git(
         &dir,
         &["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"],
@@ -115,7 +115,7 @@ fn tier_a_serve_plus_fleet_no_prompt() {
     std::thread::sleep(Duration::from_secs(2));
 
     // 4. Real change in tier-a1 → merge winner live.
-    let wt1 = repo.join(".ade-worktrees").join("tier-a1");
+    let wt1 = repo.join(".dione-worktrees").join("tier-a1");
     std::fs::write(wt1.join("hello.txt"), "from tier-a1\n").unwrap();
     git(
         &wt1,
@@ -157,8 +157,8 @@ fn tier_a_serve_plus_fleet_no_prompt() {
 
 #[test]
 fn tier_b_real_prompt_opt_in_only() {
-    if std::env::var("ADE_LIVE_PROMPT").is_err() {
-        eprintln!("skipping Tier B: set ADE_LIVE_PROMPT=1 to spend quota on a real prompt");
+    if std::env::var("DIONE_LIVE_PROMPT").is_err() {
+        eprintln!("skipping Tier B: set DIONE_LIVE_PROMPT=1 to spend quota on a real prompt");
         return;
     }
     let repo = init_repo();

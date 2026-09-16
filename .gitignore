@@ -1,5 +1,5 @@
 /target
-/.ade-worktrees/
+/.dione-worktrees/
 Cargo.lock
 *.swp
 .DS_Store

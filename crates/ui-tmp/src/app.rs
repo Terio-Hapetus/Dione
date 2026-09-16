@@ -1,4 +1,4 @@
-//! ADE root view: owns [`AdeApp`] state and the top-level layout.
+//! Dione root view: owns [`DioneApp`] state and the top-level layout.
 //! Section renderers live in `views/` (`top_bar`, `sidebar`, `chat`,
 //! `composer`, `right_panel`, `diff`, `permission`); shared colors and
 //! text helpers live in `views::theme`.
@@ -26,7 +26,7 @@ pub(crate) enum RightTab {
     File,
 }
 
-pub struct AdeApp {
+pub struct DioneApp {
     pub(crate) rt: RuntimeHandle,
     pub(crate) store: Arc<Store>,
     pub(crate) input: Entity<InputState>,
@@ -100,7 +100,7 @@ pub(crate) fn load_agent_statuses(path: Option<&Path>) -> (Vec<String>, BTreeMap
     (names, probe_all(&reg))
 }
 
-impl AdeApp {
+impl DioneApp {
     pub fn new(rt: RuntimeHandle, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -363,7 +363,7 @@ impl AdeApp {
     }
 }
 
-impl Render for AdeApp {
+impl Render for DioneApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let bg = cx.theme().background;
         let fg = cx.theme().foreground;
@@ -372,7 +372,7 @@ impl Render for AdeApp {
         let pending = self.store.pending_permissions.values().next().cloned();
 
         div()
-            .id("ade-root")
+            .id("dione-root")
             .relative()
             .size_full()
             .flex()

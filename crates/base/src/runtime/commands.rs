@@ -40,7 +40,7 @@ pub enum Command {
         file: String,
         hunks: Vec<crate::worktree::Hunk>,
     },
-    /// Create branch `name` at `ade/<slug>` (M8d "create branch here").
+    /// Create branch `name` at `dione/<slug>` (M8d "create branch here").
     CreateBranchHere {
         slug: String,
         name: String,

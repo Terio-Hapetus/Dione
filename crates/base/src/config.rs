@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-const CONFIG_DIR_NAME: &str = "ade";
+const CONFIG_DIR_NAME: &str = "dione";
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 #[derive(Debug, Clone)]
@@ -118,7 +118,7 @@ mod tests {
 
     fn scratch(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "ade-cfg-test-{}-{}-{name}",
+            "dione-cfg-test-{}-{}-{name}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

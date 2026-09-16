@@ -47,11 +47,11 @@ impl ContainerSpec {
     }
 }
 
-/// Deterministic, podman-safe name (`ade-` + 12 hex of the path hash).
+/// Deterministic, podman-safe name (`dione-` + 12 hex of the path hash).
 pub fn container_name_for(root: &Path) -> String {
     let mut h = DefaultHasher::new();
     root.to_string_lossy().hash(&mut h);
-    format!("ade-{:012x}", h.finish() & 0xffffffffffff)
+    format!("dione-{:012x}", h.finish() & 0xffffffffffff)
 }
 
 /// CLI driver. Synchronous: `ensure_running` blocks until the container
@@ -109,7 +109,7 @@ impl ContainerManager {
             "-w".to_string(),
             "/workspace".to_string(),
             "--hostname".to_string(),
-            "ade".to_string(),
+            "dione".to_string(),
             "--network".to_string(),
             "slirp4netns".to_string(),
         ];
@@ -201,7 +201,7 @@ mod tests {
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT: AtomicU64 = AtomicU64::new(1);
             let dir = std::env::temp_dir().join(format!(
-                "ade-fake-podcli-{}-{}",
+                "dione-fake-podcli-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::SeqCst)
             ));
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
         for n in [&a, &c] {
-            assert!(n.starts_with("ade-"), "{n}");
+            assert!(n.starts_with("dione-"), "{n}");
             assert!(
                 n.chars().all(|x| x.is_ascii_alphanumeric() || x == '-'),
                 "{n}"

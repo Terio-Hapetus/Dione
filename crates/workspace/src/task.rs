@@ -20,7 +20,7 @@ pub enum TaskStatus {
 }
 
 /// One unit of agent work: one task = one isolated worktree (M2 layout:
-/// `<repo>/.ade-worktrees/<slug>`, branch `ade/<slug>`).
+/// `<repo>/.dione-worktrees/<slug>`, branch `dione/<slug>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub id: TaskId,

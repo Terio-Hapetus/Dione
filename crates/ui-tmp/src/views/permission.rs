@@ -14,9 +14,9 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
 use super::theme::{TEXT_META, TEXT_SECONDARY, card_bg, muted_for, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn render_permission_overlay(
         &self,
         p: base::PendingPermission,

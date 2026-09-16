@@ -15,7 +15,7 @@ use workspace::WorkspaceProvider as _;
 use workspace::strip_ansi;
 
 use super::theme::muted_for;
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
 /// Scrollback cap: oldest lines drop past this.
 pub(crate) const TERM_SCROLLBACK_CAP: usize = 2000;
@@ -77,7 +77,7 @@ impl TermState {
     }
 }
 
-impl AdeApp {
+impl DioneApp {
     /// Active worktree slug + path, if any.
     fn active_checkout(&self) -> Option<(String, std::path::PathBuf)> {
         self.store.active_worktree.as_ref().and_then(|slug| {

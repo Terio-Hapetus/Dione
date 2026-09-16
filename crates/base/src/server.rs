@@ -12,10 +12,10 @@ pub struct AdeServer {
 }
 
 impl AdeServer {
-    /// Spawn `opencode serve` in `project_dir` (unless `ADE_EXTERNAL_SERVER_URL`
+    /// Spawn `opencode serve` in `project_dir` (unless `DIONE_EXTERNAL_SERVER_URL`
     /// is set, in which case attach to that server instead) and build a client.
     pub async fn start(config: &crate::config::AppConfig) -> Result<Self> {
-        if let Ok(url) = std::env::var("ADE_EXTERNAL_SERVER_URL") {
+        if let Ok(url) = std::env::var("DIONE_EXTERNAL_SERVER_URL") {
             tracing::info!("attaching to external opencode server at {url}");
             let client = OpencodeClient::builder()
                 .base_url(&url)

@@ -28,9 +28,9 @@ impl AgentEntry {
     }
 }
 
-/// `~/.config/ade/agents.toml` — same dir pattern as `AppConfig`.
+/// `~/.config/dione/agents.toml` — same dir pattern as `AppConfig`.
 pub fn default_agents_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("ade").join("agents.toml"))
+    dirs::config_dir().map(|d| d.join("dione").join("agents.toml"))
 }
 
 /// Parse the `[agents.<name>]` tables. Missing or invalid file → empty map.
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn probe_finds_sh_and_rejects_missing() {
         assert!(probe_bin("sh"));
-        assert!(!probe_bin("ade-no-such-bin-xyz"));
+        assert!(!probe_bin("dione-no-such-bin-xyz"));
         assert!(!probe_bin(""));
     }
 
@@ -178,7 +178,7 @@ mod tests {
     fn probe_all_maps_registry() {
         let mut reg = BTreeMap::new();
         reg.insert("good".into(), AgentEntry::new("sh", "-p"));
-        reg.insert("bad".into(), AgentEntry::new("ade-no-such-bin-xyz", "-p"));
+        reg.insert("bad".into(), AgentEntry::new("dione-no-such-bin-xyz", "-p"));
         let got = probe_all(&reg);
         assert!(got["good"]);
         assert!(!got["bad"]);

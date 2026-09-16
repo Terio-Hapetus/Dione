@@ -3,7 +3,7 @@ use gpui_component::{Sizable as _, label::Label};
 use workspace::ContainerState;
 
 use super::theme::{TEXT_META, bad_color, muted_for, ok_color, truncate, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
 /// Short text for a container lifecycle state (pure: unit-tested).
 pub(crate) fn vm_label(state: &ContainerState) -> &'static str {
@@ -26,7 +26,7 @@ pub(crate) fn vm_dot(state: &ContainerState) -> Option<Rgba> {
     }
 }
 
-impl AdeApp {
+impl DioneApp {
     /// Persistent banner when the machine cannot do containers.
     /// Host mode keeps working; worktrees are kept for manual retry.
     pub(crate) fn render_vm_banner(&self) -> impl IntoElement {

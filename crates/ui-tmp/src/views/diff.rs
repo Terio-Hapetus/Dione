@@ -3,7 +3,7 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, button::Button, label::Label};
 
 use super::theme::{bad_color, empty_state, muted_for, ok_color, truncate, warn_color};
-use crate::app::AdeApp;
+use crate::app::DioneApp;
 
 #[derive(serde::Deserialize)]
 pub(crate) struct FileDiffRow {
@@ -61,7 +61,7 @@ pub(crate) fn file_rows(value: &serde_json::Value) -> Vec<FileDiffRow> {
         .collect()
 }
 
-impl AdeApp {
+impl DioneApp {
     pub(crate) fn file_diff_block(
         &self,
         sid: &str,

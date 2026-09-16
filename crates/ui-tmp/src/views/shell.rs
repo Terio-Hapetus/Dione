@@ -9,9 +9,9 @@ use gpui::*;
 use gpui_component::{ActiveTheme as _, Sizable as _, TitleBar, button::Button, label::Label};
 
 use super::theme::{STATUS_H, TEXT_META, muted_for, soft_border_for, status_glyph, truncate};
-use crate::app::{AdeApp, RightTab};
+use crate::app::{DioneApp, RightTab};
 
-impl AdeApp {
+impl DioneApp {
     /// Custom client-side titlebar (drag strip + min/max/close).
     /// Rendered only when the compositor negotiates
     /// `Decorations::Client` (typical Wayland) — server-decorated
