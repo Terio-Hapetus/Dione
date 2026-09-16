@@ -5,6 +5,7 @@
 //! `MicroVm` provider + pty `shell()` land in M5–M6.
 
 pub mod agents;
+pub mod containers;
 pub mod dispatcher;
 pub mod host;
 pub mod microvm;
@@ -13,6 +14,10 @@ pub mod provider;
 pub mod task;
 
 pub use agents::{AgentEntry, default_agents_path, load_agents_toml, probe_all, probe_bin};
+pub use containers::{
+    CTR_IMAGE, ContainerManager, ContainerSpec, ContainerState, PREVIEW_CTR_PORT,
+    container_name_for,
+};
 pub use dispatcher::{DISPATCH_INTERVAL_SECS, Dispatcher, DispatcherAction};
 pub use host::{HostProvider, HostShell};
 pub use microvm::{MicroVm, PathMapping, PreviewPorts, SshTarget, shell_quote};
