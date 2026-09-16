@@ -1,7 +1,7 @@
 //! M4b agents: `agents.toml` registry + `PATH` probe (Lab 4).
 //!
 //! The registry lives here — not in `ade-agent` — because
-//! `Task::agent_ref` resolves here and `MicroVm` execs the kit at boot.
+//! `Task::agent_ref` resolves here and `PodmanProvider` execs the kit at boot.
 //! A missing or unparseable file means an empty registry, never a crash.
 
 use std::collections::BTreeMap;

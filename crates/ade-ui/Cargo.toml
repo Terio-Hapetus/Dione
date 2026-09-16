@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 ade-core = { path = "../ade-core" }
-ade-vm = { path = "../ade-vm" }
 ade-workspace = { path = "../ade-workspace" }
 opencode-codes = { workspace = true }
 tokio = { workspace = true }

@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use ade_vm::SshInfo;
-
 /// Captured child output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecOut {
@@ -18,17 +16,13 @@ impl ExecOut {
     }
 }
 
-/// The seam Host and MicroVm share: agents only see this, never the
-/// concrete environment. `shell()` (pty, M6) opens an interactive shell;
-/// `exec` + `ssh_info` is the non-interactive surface.
+/// The seam Host and Podman share: agents only see this, never the
+/// concrete environment. `shell()` (pty) opens an interactive shell;
+/// `exec` is the non-interactive surface.
 pub trait WorkspaceProvider: Send {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut>;
-    /// `None` = running on the Host. `Some` = attached guest (VM/SSH).
-    fn ssh_info(&self) -> Option<SshInfo> {
-        None
-    }
     /// Interactive shell in `cwd`. Default: unsupported (override per
-    /// backend; Host uses `portable-pty`, MicroVm SSH lands in M6f).
+    /// backend; Host and Podman use `portable-pty`).
     fn shell(&mut self, _cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {
         anyhow::bail!("shell not supported by this provider")
     }
@@ -125,8 +119,6 @@ mod tests {
         assert_eq!(out.stdout, "hi\n");
         assert_eq!(m.executed.len(), 1);
         assert_eq!(m.executed[0].0, vec!["echo".to_string(), "hi".to_string()]);
-        // Host default: no SSH.
-        assert_eq!(m.ssh_info(), None);
         // Empty script errors instead of hanging.
         assert!(m.exec(&["echo"], Path::new("/")).is_err());
     }

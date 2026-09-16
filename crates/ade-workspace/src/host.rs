@@ -33,7 +33,7 @@ impl WorkspaceProvider for HostProvider {
             code: output.status.code(),
         })
     }
-    // ssh_info: default None = Host. No override needed.
+    // No ssh_info override: containers are not SSH guests (ADR-0006).
 
     fn shell(&mut self, cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {
         Ok(Box::new(HostShell::spawn(cwd)?))
@@ -153,7 +153,6 @@ mod tests {
         let out = h.exec(&["echo", "hello-host"], Path::new("/tmp")).unwrap();
         assert!(out.success());
         assert_eq!(out.stdout.trim(), "hello-host");
-        assert_eq!(h.ssh_info(), None);
     }
 
     #[test]

@@ -3,7 +3,8 @@
 //! Turns `(slug, agent_ref, prompt)` into a registered [`Supervisor`].
 //! The runtime then binds it to the session created in the matching
 //! worktree scope (`bind_new`) and drains it every poll tick (hook A).
-//! VM workspaces (`MicroVm`) plug into the same entry point later.
+//! Container workspaces (`PodmanProvider`) plug into the same entry
+//! point via `open_task_with`.
 //!
 //! Takes `&FleetInbox` (not `&RuntimeHandle`) so tests run without a
 //! server thread; production passes `rt.fleet()`.

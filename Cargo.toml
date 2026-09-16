@@ -3,7 +3,6 @@ resolver = "3"
 members = [
     "crates/ade-core",
     "crates/ade-ui",
-    "crates/ade-vm",
     "crates/ade-agent",
     "crates/ade-workspace",
 ]

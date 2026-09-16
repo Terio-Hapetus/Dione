@@ -106,7 +106,6 @@ impl WorkspaceProvider for PodmanProvider {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut> {
         self.exec_with_env(cmd, cwd, &[])
     }
-    // ssh_info: default None — containers are not SSH guests.
     // shell(): default unsupported until P2.
 
     /// Interactive shell: local pty running the podman client.
@@ -207,8 +206,6 @@ mod tests {
             argv.contains("exec -w /workspace ade-test echo hi there"),
             "{argv}"
         );
-        // Containers are not SSH guests (unlike MicroVm's Some).
-        assert_eq!(p.ssh_info(), None);
     }
 
     #[test]
@@ -261,7 +258,9 @@ mod tests {
 
     fn read_until(sh: &mut dyn ShellChannel, needle: &str) -> Vec<u8> {
         let mut acc = Vec::new();
-        for _ in 0..100 {
+        // Generous budget: pty spawn stalls under full-workspace parallel runs
+        // (same flake class as the legacy fake-ssh shell test).
+        for _ in 0..200 {
             acc.extend(sh.read_available());
             if String::from_utf8_lossy(&acc).contains(needle) {
                 break;

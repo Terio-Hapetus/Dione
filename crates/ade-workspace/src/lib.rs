@@ -1,14 +1,13 @@
 //! Workspace seam (M4 kickoff): 1 repo + config + worktrees.
-//! Agents see only [`WorkspaceProvider`], never Host-vs-VM.
+//! Agents see only [`WorkspaceProvider`], never Host-vs-container.
 //!
-//! Depends one-way on `ade-core` (TaskId) and `ade-vm` (SshInfo).
-//! `MicroVm` provider + pty `shell()` land in M5–M6.
+//! Depends one-way on `ade-core` (TaskId).
+//! `PodmanProvider` + pty `shell()` land in podman P1–P3 (ADR-0006).
 
 pub mod agents;
 pub mod containers;
 pub mod dispatcher;
 pub mod host;
-pub mod microvm;
 pub mod podman;
 pub mod provider;
 pub mod task;
@@ -20,7 +19,6 @@ pub use containers::{
 };
 pub use dispatcher::{DISPATCH_INTERVAL_SECS, Dispatcher, DispatcherAction};
 pub use host::{HostProvider, HostShell};
-pub use microvm::{MicroVm, PathMapping, PreviewPorts, SshTarget, shell_quote};
 pub use podman::{CTR_WORKSPACE, ContainerMount, PodmanProvider, probe_podman};
 pub use provider::{ExecOut, MockWorkspace, ShellChannel, WorkspaceProvider, strip_ansi};
 pub use task::{DEFAULT_FAILURE_LIMIT, Task, TaskStatus, handoff_summary};

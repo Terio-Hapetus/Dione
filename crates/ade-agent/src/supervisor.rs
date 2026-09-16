@@ -193,7 +193,12 @@ mod tests {
     #[test]
     fn workspace_face_is_reachable() {
         let (mut sup, _id) = supervisor_with_prompt("hi");
-        assert_eq!(sup.workspace().ssh_info(), None);
+        // MockWorkspace has no canned output: exec errs instead of hanging.
+        assert!(
+            sup.workspace()
+                .exec(&["true"], std::path::Path::new("/"))
+                .is_err()
+        );
     }
 
     #[test]
