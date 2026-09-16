@@ -33,6 +33,18 @@ cargo test -p workspace --lib   # chưa podman cũng xanh (fakes)
 - Đúng: `Missing → Pulling → Running`, exec `touch` thành công.
 - `Error`: kiểm tra image đã pull? `podman ps -a` thấy container?
   Xem `WORKSPACE-VM.md#lifecycle`.
+- Sandbox lồng nhau (máy dev cũng là container: thiếu `/dev/fuse`,
+  `/dev/net/tun`, cgroupfs read-only): storage `vfs` + runtime `crun`
+  qua env, không đụng code production:
+
+```bash
+sudo apt install -y podman slirp4netns crun
+sudo mkdir -p /dev/net && sudo mknod /dev/net/tun c 10 200
+printf '[storage]\ndriver = "vfs"\nrootless_storage_path = "/tmp/podman-live-root"\n' > /tmp/live-storage.conf
+printf '[engine]\nruntime = "crun"\n' > /tmp/live-containers.conf
+CONTAINERS_STORAGE_CONF=/tmp/live-storage.conf CONTAINERS_CONF=/tmp/live-containers.conf \
+  DIONE_LIVE_PODMAN=1 cargo test -p workspace --test live_podman -- --nocapture
+```
 
 ## Lab 3: mount thấy file 2 chiều (cần podman + live container)
 

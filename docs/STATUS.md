@@ -239,13 +239,23 @@ docs sống + skills `dione-*`, docs lịch sử rewrite tên.
   flip/không vẽ SSD; request Client tường minh → TitleBar hiện
   deterministic (KDE/X11-no-compositor vẫn fallback native; MOTIF hints
   đã verify giữ decorations). User nghiệm thu trên Wayland thật.
-2. Live lần đầu trên máy podman: Lab 2/3 (`DIONE_LIVE_PODMAN=1`), re-verify
-   bind-mount `-v …:rw,Z` + user + image pin (máy này không podman nên
-   live test SKIP-pass).
+2. DONE live podman lần đầu (Lab 2/3 xanh thật trên máy này):
+   `DIONE_LIVE_PODMAN=1 cargo test -p workspace --test live_podman` 2/2
+   passed (`podman_run_exec_stop` cũ + `podman_ensure_idempotent_shell_stop`
+   mới: ensure 2 lần vẫn 1 container, shell `exec -it` roundtrip pty,
+   stop true→false→gone). Bind-mount `-v …:rw,Z` 2 chiều đã re-verify.
+   Env workaround của sandbox (KHÔNG đụng code production): máy là
+   container lồng nhau nên `/dev/fuse` thiếu → storage `vfs` qua
+   `CONTAINERS_STORAGE_CONF`, `/dev/net/tun` tạo tay qua mknod,
+   cgroupfs read-only + runc kén NoCgroups → runtime `crun` qua
+   `CONTAINERS_CONF`; argv production (`--cap-drop=all`, limits,
+   `--read-only`, slirp4netns) giữ nguyên, chạy thật ok. Không podman →
+   live test vẫn SKIP-pass, CI xanh.
 2. M6 còn lại: Open-Workspace container wiring production (`rt.fleet()`
    callsite: `open_task_with` với `PodmanProvider`) + live podman
 3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers
 
-- None. Cần 1 máy có podman để chạy live tests container lần đầu.
+- None. Live podman đã xanh tại chỗ (xem Next up #2); `/dev/net/tun` +
+  storage/runtime workaround nằm ở `/tmp` (mất khi reboot, làm lại 3 lệnh).
