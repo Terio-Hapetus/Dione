@@ -1,0 +1,12 @@
+[package]
+name = "agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+base = { path = "../base" }
+workspace = { path = "../workspace" }
+anyhow = { workspace = true }
+opencode-codes = { workspace = true }
