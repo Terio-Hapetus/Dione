@@ -1,13 +1,17 @@
 [package]
-name = "ade-ui"
+name = "desktop"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "dione"
+path = "src/main.rs"
+
 [dependencies]
-base = { path = "../base" }
-workspace = { path = "../workspace" }
+base = { path = "../../crates/base" }
+workspace = { path = "../../crates/workspace" }
 opencode-codes = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

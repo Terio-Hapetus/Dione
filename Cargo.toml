@@ -2,9 +2,9 @@
 resolver = "3"
 members = [
     "crates/base",
-    "crates/ui-tmp",
     "crates/agent",
     "crates/workspace",
+    "apps/desktop",
 ]
 
 [workspace.package]
