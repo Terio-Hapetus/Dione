@@ -8,6 +8,7 @@ pub mod agents;
 pub mod dispatcher;
 pub mod host;
 pub mod microvm;
+pub mod podman;
 pub mod provider;
 pub mod task;
 
@@ -15,5 +16,6 @@ pub use agents::{AgentEntry, default_agents_path, load_agents_toml, probe_all, p
 pub use dispatcher::{DISPATCH_INTERVAL_SECS, Dispatcher, DispatcherAction};
 pub use host::{HostProvider, HostShell};
 pub use microvm::{MicroVm, PathMapping, PreviewPorts, SshTarget, shell_quote};
+pub use podman::{CTR_WORKSPACE, ContainerMount, PodmanProvider, probe_podman};
 pub use provider::{ExecOut, MockWorkspace, ShellChannel, WorkspaceProvider, strip_ansi};
 pub use task::{DEFAULT_FAILURE_LIMIT, Task, TaskStatus, handoff_summary};
