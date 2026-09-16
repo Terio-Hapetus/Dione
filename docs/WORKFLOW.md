@@ -10,9 +10,9 @@
    cargo check --workspace
    cargo clippy --workspace --all-targets   # 0 warnings
    cargo fmt --all
-   cargo test -p ade-core
+   cargo test -p base
    # Nếu đụng UI:
-   env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/ade-ui
+   env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/dione
    ```
 4. **Kết slice:** `git status` → stage đúng file → commit → update `STATUS.md`
    (position/next/blockers).
@@ -20,7 +20,7 @@
 ## Khi thêm module mới (chống vỡ legacy)
 
 - Viết trait + `Mock` trước, test `Mock` xanh rồi mới viết backend thật.
-- Code mới sống trong `ade-core` (<250 dòng/file) ở M3–M4, tách crate ở M5.
+- Code mới sống trong `base` (<250 dòng/file) ở M3–M4, tách crate ở M5.
 - Không sửa signature cũ: thêm types mới + adapter translate ở biên.
 - Build mặc định `host-only` phải qua được trên máy không KVM.
 
@@ -32,7 +32,7 @@
 
 ## Checklist cuối task
 
-- [ ] `cargo test -p ade-core` xanh (26+ tests)
+- [ ] `cargo test -p base` xanh (26+ tests)
 - [ ] clippy 0 warnings, `cargo fmt` đã chạy
 - [ ] `STATUS.md` đã update
 - [ ] Lab liên quan trong `LABS.md` còn xanh

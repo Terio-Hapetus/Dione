@@ -16,7 +16,7 @@ which podman
 ## Lab 1: worktree cơ bản (M2, Host, không container)
 
 ```bash
-cargo test -p ade-core worktree
+cargo test -p base worktree
 ```
 
 - Đúng: tests `create/remove/prune/merge/dirty-guard` xanh.
@@ -25,9 +25,9 @@ cargo test -p ade-core worktree
 ## Lab 2: hello-container (cần podman)
 
 ```bash
-cargo test -p ade-workspace --lib   # chưa podman cũng xanh (fakes)
+cargo test -p workspace --lib   # chưa podman cũng xanh (fakes)
 # Có podman (xem WORKSPACE-VM.md "Live requirements"):
-# ADE_LIVE_PODMAN=1 cargo test -p ade-workspace --test live_podman -- --nocapture
+# DIONE_LIVE_PODMAN=1 cargo test -p workspace --test live_podman -- --nocapture
 ```
 
 - Đúng: `Missing → Pulling → Running`, exec `touch` thành công.
@@ -58,10 +58,10 @@ ls <repo>/hello-from-ctr
 ## Lab 4: agent mới (không container cũng chạy được)
 
 ```bash
-mkdir -p ~/.config/ade && cp agents.toml.example ~/.config/ade/agents.toml
+mkdir -p ~/.config/dione && cp agents.toml.example ~/.config/dione/agents.toml
 which opencode   # + which claude / codex nếu đã cài
-cat ~/.config/ade/agents.toml
-cargo test -p ade-workspace agents && cargo test -p ade-ui top_bar
+cat ~/.config/dione/agents.toml
+cargo test -p workspace agents && cargo test -p desktop top_bar
 ```
 
 - Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh

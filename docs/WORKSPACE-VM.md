@@ -13,7 +13,7 @@ Sandbox = podman rootless, không MicroVM. Code theo file này.
 
 ```rust
 struct ContainerSpec {
-    name: String,         // "ade-<12hex>" từ hash canonical path
+    name: String,         // "dione-<12hex>" từ hash canonical path
     host_root: PathBuf,   // bind-mount read-write vào /workspace
     image: String,        // "docker.io/library/ubuntu:24.04" (pin digest)
     preview_host: Option<u16>, // container :3000 → host 41xx
@@ -56,7 +56,7 @@ UI Fleet hiển thị badge state.
 ## Live requirements (máy chạy container thật)
 
 - Binary: `podman` (rootless), network để `pull` image lần đầu.
-- Live test: `ADE_LIVE_PODMAN=1 cargo test -p ade-workspace --test live_podman`
+- Live test: `DIONE_LIVE_PODMAN=1 cargo test -p workspace --test live_podman`
 - Không podman → test SKIP-pass, app Host mode, CI/Xvfb vẫn xanh.
 
 ## Giới hạn p1 (không làm)

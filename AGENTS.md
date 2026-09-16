@@ -29,15 +29,15 @@ No canvas — that lives in a separate project. Focus: M2 fleet (see
 cargo check --workspace
 cargo clippy --workspace --all-targets   # 0 warnings
 cargo fmt --all                          # before every commit
-cargo test -p ade-core                   # unit, no network
+cargo test -p base               # unit, no network
 
 # Live (spawns real `opencode serve`):
-cargo test -p ade-core --features integration-tests
-ADE_LIVE_PROMPT=1 cargo test -p ade-core --features integration-tests tier_b
+cargo test -p base --features integration-tests
+DIONE_LIVE_PROMPT=1 cargo test -p base --features integration-tests tier_b
 
-cargo run -p ade-ui
+cargo run -p desktop
 # Headless smoke (unset Wayland or GPUI picks it over Xvfb):
-env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/ade-ui
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/dione
 ```
 
 ## Docs map

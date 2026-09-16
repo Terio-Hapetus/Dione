@@ -1,11 +1,11 @@
 ---
-name: ade-gpui
+name: dione-gpui
 description: GPUI 0.2.2 and gpui-component 0.5.1 API pitfalls for the ADE desktop UI
 ---
 
 # ADE GPUI notes
 
-Load this skill when touching `crates/ade-ui`.
+Load this skill when touching `apps/desktop`.
 
 ## Pins
 

@@ -1,7 +1,7 @@
 # ADE agent registry example (M4b, Lab 4).
 #
-# Copy to ~/.config/ade/agents.toml, then uncomment the agents you use:
-#   mkdir -p ~/.config/ade && cp agents.toml.example ~/.config/ade/agents.toml
+# Copy to ~/.config/dione/agents.toml, then uncomment the agents you use:
+#   mkdir -p ~/.config/dione && cp agents.toml.example ~/.config/dione/agents.toml
 #
 # Each entry: the binary ADE probes on PATH (green/red tick in the Agent
 # picker) + the CLI flag carrying the prompt + the kit script installed

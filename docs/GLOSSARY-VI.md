@@ -36,7 +36,7 @@ không `authorized_keys`, không reuse gì cả.
 ## Worktree — bàn làm việc riêng
 
 `git worktree add` checkout 1 branch ra 1 thư mục riêng.
-ADE: `<repo>/.ade-worktrees/<slug>` + branch `ade/<slug>`.
+ADE: `<repo>/.dione-worktrees/<slug>` + branch `ade/<slug>`.
 1 task = 1 worktree = N agent chạy song song không giẫm file nhau.
 
 ## Workspace — cả tầng làm việc

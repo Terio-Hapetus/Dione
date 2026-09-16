@@ -1,11 +1,11 @@
 ---
-name: ade-wire
-description: opencode 1.18 wire shapes and SSE discipline for ade-core runtime work
+name: dione-wire
+description: opencode 1.18 wire shapes and SSE discipline for base runtime work
 ---
 
 # ADE wire notes
 
-Load this skill when touching `crates/ade-core` runtime/state/server.
+Load this skill when touching `crates/base` runtime/state/server.
 
 ## SDK
 

@@ -1,5 +1,5 @@
 ---
-name: ade-workflow
+name: dione-workflow
 description: How to work on ADE — plan/build modes, verify gates, commit slices, STATUS updates
 ---
 
@@ -18,13 +18,13 @@ Load this skill when starting or finishing any ADE task.
 cargo check --workspace
 cargo clippy --workspace --all-targets   # must be 0 warnings
 cargo fmt --all
-cargo test -p ade-core
+cargo test -p base
 ```
 
 GUI change? Also run the Xvfb smoke and confirm the window appears:
 
 ```bash
-env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/ade-ui
+env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET xvfb-run -a -s "-screen 0 1440x900x24" ./target/debug/dione
 ```
 
 ## Commit discipline

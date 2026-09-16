@@ -17,7 +17,7 @@
 ┌─ Workspace (1 repo) ──▼──────────────────────────────┐
 │ 1 container / 1 workspace (podman rootless)          │
 │ ├── worktrees trong bind-mount /workspace            │
-│ │    <repo>/.ade-worktrees/<slug> (branch ade/<slug>)│
+│ │    <repo>/.dione-worktrees/<slug> (branch ade/<slug>)│
 │ └── agent CLI bất kỳ (kit script lúc boot)           │
 └──────────────────────────────────────────────────────┘
 ```
@@ -30,20 +30,20 @@
 
 ```
 crates/
-├── ade-core/        # FROZEN M1–M2: Store/Command cũ giữ nguyên (dual-write)
+├── base/        # FROZEN M1–M2: Store/Command cũ giữ nguyên (dual-write)
 │   └── + modules mới tạm trú: transcript.rs → agent.rs → workspace.rs → vm.rs
-├── ade-workspace/   # Workspace + Task + WorkspaceProvider { Host, Podman }
+├── workspace/   # Workspace + Task + WorkspaceProvider { Host, Podman }
 │                    # + ContainerManager (ensure/stop, image pull) — xem ADR-0006
-├── ade-agent/       # AgentBackend { OpencodeAdapter, TerminalAdapter } + kits/*.sh
-└── ade-ui/          # HostShell + WorktreeView [Chat | Terminal]
+├── agent/       # AgentBackend { OpencodeAdapter, TerminalAdapter } + kits/*.sh
+└── desktop/          # HostShell + WorktreeView [Chat | Terminal]
 ```
 
 Quy tắc chống vỡ legacy:
 
 1. Không sửa signature `Store`/`Command` cũ — chỉ **thêm** types mới.
-2. Module mới sống trong `ade-core` ở M3–M4 (<250 dòng/file), tách crate
+2. Module mới sống trong `base` ở M3–M4 (<250 dòng/file), tách crate
    khi API ổn định (M5).
-3. CI/Xvfb không podman vẫn xanh (fakes + live-gate `ADE_LIVE_PODMAN=1`).
+3. CI/Xvfb không podman vẫn xanh (fakes + live-gate `DIONE_LIVE_PODMAN=1`).
 4. Build mặc định `host-only` không cần podman.
 
 ## Core types (khóa để review)

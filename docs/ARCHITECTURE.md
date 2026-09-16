@@ -4,8 +4,8 @@
 
 ```
 crates/
-├── ade-core/          # runtime, headless-testable — NO UI dependency
-│   ├── config.rs      # AppConfig (~/.config/ade/config.toml)
+├── base/          # runtime, headless-testable — NO UI dependency
+│   ├── config.rs      # AppConfig (~/.config/dione/config.toml)
 │   ├── worktree.rs    # pure helpers: slug/branch/path + WorktreeRecord
 │   ├── state.rs       # facade → state/{types,store,events}.rs
 │   ├── server.rs      # spawn/manage `opencode serve` + client
@@ -13,11 +13,11 @@ crates/
 │   │                  #   reconcile,handlers,io}.rs
 │   ├── transcript.rs  # UnifiedMessage/Cost/TaskId (shared leaf types)
 │   └── context.rs     # context-window view-model + token est
-├── ade-agent/         # AgentBackend trait + MockAgent + OpencodeAdapter
-│                      # (moved from ade-core; depends one-way on ade-core)
-├── ade-workspace/     # Task + WorkspaceProvider { HostProvider, Mock }
+├── agent/         # AgentBackend trait + MockAgent + OpencodeAdapter
+│                      # (moved from base; depends one-way on base)
+├── workspace/     # Task + WorkspaceProvider { HostProvider, Mock }
 │                      # + PodmanProvider (exec, secrets-via-env) + ContainerManager
-└── ade-ui/            # GPUI desktop bin
+└── desktop/            # GPUI desktop bin
     └── src/{main,app}.rs + views/{theme,top_bar,sidebar,chat,
                                   composer,right_panel,diff,permission,
                                   vm_badge}.rs
@@ -29,7 +29,7 @@ UI thread → `Command` channel → runtime thread → mutate `Store` →
 publish `Arc<Store>` via `RwLock` → GPUI view polls every 160 ms,
 `cx.notify()` only when the Arc ptr changes.
 
-## Store (ade-core/src/state.rs)
+## Store (base/src/state.rs)
 
 - `sessions: BTreeMap<id, Session>` / `statuses: BTreeMap<id, SessionStatus>`
 - `messages: BTreeMap<sid, Vec<MessageEntry>>` (`MessageEntry { info, parts }`)
@@ -68,7 +68,7 @@ publish `Arc<Store>` via `RwLock` → GPUI view polls every 160 ms,
   `GET /session/{id}/todo`, `GET /provider` (defensive parse),
   `GET /global/health`.
 
-## UI (ade-ui/src/app.rs + views/)
+## UI (desktop/src/app.rs + views/)
 
 `AdeApp { rt, store, input, right_tab, model_ix, diff_notes,
 annotate_target }` (state + actions + root `Render` only).
