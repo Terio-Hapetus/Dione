@@ -85,14 +85,14 @@ pub fn append_reply(notes: &mut [DiffNote], target: &DiffNote, reply: String) ->
     }
 }
 
+type Anchor = (String, String, u32);
+type LineRange = (u32, u32);
+
 /// Anchor state machine for two-click range select (M8c, pure).
 /// Returns `(start, end)` with `start <= end`, or `None` when the click
 /// only sets/moves the anchor. Clicking the anchor line itself clears it
 /// back to a single-line target.
-pub fn resolve_range(
-    anchor: Option<(String, String, u32)>,
-    click: (String, String, u32),
-) -> (Option<(String, String, u32)>, Option<(u32, u32)>) {
+pub fn resolve_range(anchor: Option<Anchor>, click: Anchor) -> (Option<Anchor>, Option<LineRange>) {
     let (sid, file, line) = click;
     match anchor {
         Some((a_sid, a_file, a_line)) if a_sid == sid && a_file == file => {

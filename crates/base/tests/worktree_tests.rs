@@ -315,7 +315,7 @@ async fn cherry_pick_rejects_empty_selection_and_bad_input() {
         lines: vec!["-hi".into(), "+ho".into()],
     };
     assert!(
-        worktree::apply_hunks(&repo, "", &[h.clone()])
+        worktree::apply_hunks(&repo, "", std::slice::from_ref(&h))
             .await
             .is_err()
     );
@@ -333,7 +333,7 @@ async fn cherry_pick_rejects_empty_selection_and_bad_input() {
         "(unknown)",
     ] {
         assert!(
-            worktree::apply_hunks(&repo, evil, &[h.clone()])
+            worktree::apply_hunks(&repo, evil, std::slice::from_ref(&h))
                 .await
                 .is_err(),
             "{evil} must be rejected"

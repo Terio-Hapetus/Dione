@@ -305,6 +305,7 @@ docs sống + skills `dione-*`, docs lịch sử rewrite tên.
    `Running` → `spawn_agent_in_container` via `PodmanProvider` + `with_secrets`;
    nút ▶ per-row Fleet, prompt composer, agent first-present; `select_worktree`
    wake/pause đã ở M5); backlog Agent Orchestrator (`Send all` fan-out) để roadmap.
+2. DONE hardening/stabilize (H1→H3): clippy 0 warnings (file.rs format-in-format, worktree_tests slice::from_ref, types alias; proc-macro-error2 để lại), stress `cargo test --workspace` 10/10 xanh (1 fail lẻ trước fix ở `inspect_state` ETXTBSY → thêm `retry_busy`), live podman 2/2 re-verify (14s) + Xvfb smoke sạch sau M6 wiring.
 3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers

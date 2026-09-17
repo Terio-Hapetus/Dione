@@ -141,20 +141,17 @@ impl DioneApp {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(
-                        Label::new(format!(
-                            "{}{}  ·  {}",
-                            if f.scope.is_empty() {
-                                "main".to_string()
-                            } else {
-                                format!("⑂ {}", f.scope)
-                            },
-                            format!("/{}", f.relpath),
-                            f.lang
-                        ))
-                        .text_size(px(11.))
-                        .text_color(warn_color()),
-                    )
+                    .child({
+                        let owner = if f.scope.is_empty() {
+                            "main".to_string()
+                        } else {
+                            format!("⑂ {}", f.scope)
+                        };
+                        let rel = format!("/{}", f.relpath);
+                        Label::new(format!("{}{}  ·  {}", owner, rel, f.lang))
+                            .text_size(px(11.))
+                            .text_color(warn_color())
+                    })
                     .child(
                         Button::new("file-close")
                             .label("×")

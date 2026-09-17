@@ -170,10 +170,12 @@ impl ContainerManager {
     /// Unknown raw strings surface as `Error` so new podman states don't
     /// silently pretend to be `Running`.
     pub fn inspect_state(&self, name: &str) -> anyhow::Result<ContainerState> {
-        let out = Command::new(&self.bin)
-            .args(["inspect", "--format", "{{.State.Status}}", name])
-            .output()
-            .map_err(|e| anyhow::anyhow!("podman spawn failed: {e:#}"))?;
+        let out = retry_busy(|| {
+            Command::new(&self.bin)
+                .args(["inspect", "--format", "{{.State.Status}}", name])
+                .output()
+        })
+        .map_err(|e| anyhow::anyhow!("podman spawn failed: {e:#}"))?;
         if !out.status.success() {
             // `inspect` exits non-zero when the container doesn't exist
             // (the `ps`-fallback path below would be racy for this caller).
