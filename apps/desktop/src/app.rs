@@ -14,7 +14,10 @@ use gpui_component::{
     ActiveTheme as _,
     input::{InputEvent, InputState},
 };
-use workspace::{ContainerState, default_agents_path, load_agents_toml, probe_all, probe_podman};
+use workspace::{
+    ContainerState, PodmanProvider, WorkspaceProvider as _, container_name_for,
+    default_agents_path, load_agents_toml, probe_all, probe_podman,
+};
 
 use crate::container_thread::ContainerThread;
 use crate::views::terminal::TermState;
@@ -90,6 +93,11 @@ pub struct DioneApp {
     /// Usage snapshot for the Costs tab (M9d): drained from the fleet
     /// inbox on the snapshot loop, folded by `views::costs`.
     pub(crate) usage: Vec<UsageSample>,
+    /// Pending agent runs waiting for a container to become `Running`
+    /// (W1 always-container). Keyed by slug; value is (agent_ref, prompt,
+    /// worktree_path). The snapshot loop drains `Running` reports and
+    /// spawns via `open_task_with` with a `PodmanProvider`.
+    pub(crate) pending_runs: BTreeMap<String, (String, String, std::path::PathBuf)>,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -217,11 +225,47 @@ impl DioneApp {
                     }
                     // Container reports: feed the Fleet badge without blocking.
                     let mut vm_changed = false;
+                    let mut pending_to_spawn: Vec<(String, String, String, std::path::PathBuf)> =
+                        Vec::new();
+                    let mut pending_to_clear: Vec<String> = Vec::new();
                     for rep in app.vm.drain() {
+                        let slug = rep.slug.clone();
+                        // Collect pending run for this slug before mutating.
+                        if rep.state == ContainerState::Running
+                            && let Some((agent, prompt, path)) =
+                                app.pending_runs.get(&slug).cloned()
+                        {
+                            pending_to_spawn.push((slug.clone(), agent, prompt, path));
+                        } else if matches!(rep.state, ContainerState::Error(_))
+                            && app.pending_runs.contains_key(&slug)
+                        {
+                            pending_to_clear.push(slug.clone());
+                        }
                         app.set_container_state(rep.slug, rep.state);
                         vm_changed = true;
                     }
                     if vm_changed {
+                        cx.notify();
+                    }
+                    // W1 always-container: container became Running → spawn.
+                    for (slug, agent, prompt, path) in pending_to_spawn {
+                        // Remove before spawn so a spawn error doesn't loop.
+                        app.pending_runs.remove(&slug);
+                        if let Err(e) = app.spawn_agent_in_container(&slug, &path, &agent, &prompt)
+                        {
+                            // Surface via store error strip (store is snapshot-
+                            // sourced, but push_error on the snapshot Arc is
+                            // not persisted — we mutate the Arc's Store via
+                            // interior? For W1 we just keep a local error via
+                            // the store's errors are not directly writable.
+                            // Use tracing + keep pending cleared so retry
+                            // requires another click.
+                            tracing::warn!("run {slug} spawn failed: {e:#}");
+                        }
+                        cx.notify();
+                    }
+                    for slug in pending_to_clear {
+                        app.pending_runs.remove(&slug);
                         cx.notify();
                     }
                     // Usage snapshot for the Costs tab (M9d): cheap
@@ -289,6 +333,7 @@ impl DioneApp {
             pending_shell: None,
             term_pending: false,
             usage: Vec::new(),
+            pending_runs: BTreeMap::new(),
         }
     }
 
@@ -329,6 +374,119 @@ impl DioneApp {
     /// Fed by the container thread via the snapshot loop (ADR-0006/0007).
     pub(crate) fn set_container_state(&mut self, slug: String, state: ContainerState) {
         self.vm_states.insert(slug, state);
+    }
+
+    /// Pick the agent for ▶ Run: first present CLI in registry order.
+    /// `None` = no registry or nothing on PATH — caller surfaces an error.
+    pub(crate) fn pick_run_agent(&self) -> Option<String> {
+        for name in &self.agent_names {
+            if self.agent_ok.get(name).copied().unwrap_or(false) {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
+
+    /// Spawn a terminal agent in the worktree's container (W1/W2
+    /// always-container). Any `agent_ref` (registry key like `claude` or
+    /// `codex`) is treated as a terminal CLI over the container pty — the
+    /// exact binary is resolved at exec time inside the container, not
+    /// here. Secrets are attached when a keychain is present (M9e).
+    pub(crate) fn spawn_agent_in_container(
+        &self,
+        slug: &str,
+        path: &Path,
+        agent_ref: &str,
+        prompt: &str,
+    ) -> anyhow::Result<()> {
+        if self.rt.fleet().has_slug(slug) {
+            anyhow::bail!("task already open for slug {slug:?}");
+        }
+        if !self.rt.fleet().has_sweeper() {
+            self.rt
+                .fleet()
+                .register_sweeper(Box::new(agent::sweeper::FleetSweeper::new()));
+        }
+        let root = crate::container_thread::workspace_root(path);
+        let key = crate::container_thread::worktree_key(path);
+        let name = container_name_for(&key);
+        let mut provider = PodmanProvider::new(&name, &root);
+        let shell = provider.shell(path)?;
+        let mut adapter = agent::terminal::TerminalAdapter::new();
+        let task = workspace::Task::new(slug, agent_ref);
+        let id = task.id;
+        adapter.attach(id, shell);
+        // Queue the first prompt (same as driver.rs).
+        {
+            let backend: &mut dyn agent::agent::AgentBackend = &mut adapter;
+            backend.spawn(id, prompt)?;
+        }
+        let ws: Box<dyn workspace::WorkspaceProvider> = Box::new(provider);
+        let mut sup = agent::supervisor::Supervisor::new(task, Box::new(adapter), ws);
+        if let Some(secrets) = env_secrets()
+            && let Some(p) = default_agents_path()
+        {
+            let reg = load_agents_toml(&p);
+            if reg.get(agent_ref).is_some_and(|e| !e.env_keys.is_empty()) {
+                sup = sup.with_secrets(reg, Box::new(secrets));
+            }
+        }
+        if !self.rt.fleet().register_task(Box::new(sup)) {
+            anyhow::bail!("task already open (lost registration race)");
+        }
+        Ok(())
+    }
+
+    /// ▶ Run clicked for a worktree row (W1). Always-container: ensure
+    /// to `Running` then spawn, or spawn immediately if already `Running`.
+    /// Empty prompt or no agent → no-ops (pending not inserted) so the
+    /// user can fix the input without a stuck pending.
+    pub(crate) fn run_worktree_agent(
+        &mut self,
+        slug: String,
+        path: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.vm_available {
+            tracing::warn!("run {slug}: podman unavailable — Host mode");
+            return;
+        }
+        let prompt = self.input.read(cx).value().to_string();
+        let prompt = prompt.trim().to_string();
+        if prompt.is_empty() {
+            tracing::warn!("run {slug}: empty prompt — fill the composer first");
+            return;
+        }
+        let agent_ref = match self.pick_run_agent() {
+            Some(a) => a,
+            None => {
+                tracing::warn!("run {slug}: no agent binary found on PATH");
+                return;
+            }
+        };
+        if self.rt.fleet().has_slug(&slug) {
+            tracing::warn!("run {slug}: task already open");
+            return;
+        }
+        let state = self.vm_states.get(&slug).cloned();
+        match state {
+            Some(ContainerState::Running) => {
+                if let Err(e) = self.spawn_agent_in_container(&slug, &path, &agent_ref, &prompt) {
+                    tracing::warn!("run {slug} spawn failed: {e:#}");
+                }
+            }
+            Some(ContainerState::Paused) => {
+                self.pending_runs
+                    .insert(slug.clone(), (agent_ref, prompt, path.clone()));
+                self.vm.unpause(slug, path);
+            }
+            _ => {
+                self.pending_runs
+                    .insert(slug.clone(), (agent_ref, prompt, path.clone()));
+                self.vm.ensure(slug, path);
+            }
+        }
+        cx.notify();
     }
 
     /// ADR-0007: selecting a worktree wakes its container and pauses

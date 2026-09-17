@@ -219,6 +219,16 @@ impl DioneApp {
                     this.vm.ensure(open_slug.clone(), record.path.clone());
                 }
             });
+            let run_slug = slug.clone();
+            let run_path = self
+                .store
+                .worktrees
+                .get(&slug)
+                .map(|r| r.path.clone())
+                .unwrap_or_default();
+            let run = cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.run_worktree_agent(run_slug.clone(), run_path.clone(), cx);
+            });
             let bg: Hsla = if active {
                 active_bg(dark).into()
             } else {
@@ -263,6 +273,13 @@ impl DioneApp {
                                     .compact()
                                     .on_click(retry)
                             }))
+                            .child(
+                                Button::new(SharedString::from(format!("wt-run-{slug}")))
+                                    .label("▶")
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(run),
+                            )
                             .child(
                                 Button::new(SharedString::from(format!("wt-open-{slug}")))
                                     .label("⏻")

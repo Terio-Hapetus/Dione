@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 base = { path = "../../crates/base" }
 workspace = { path = "../../crates/workspace" }
+agent = { path = "../../crates/agent" }
 opencode-codes = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -20,3 +21,4 @@ anyhow = { workspace = true }
 gpui = { workspace = true }
 gpui-component = { workspace = true }
 gpui-component-assets = { workspace = true }
+tracing = { workspace = true }

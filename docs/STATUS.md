@@ -301,8 +301,10 @@ docs sống + skills `dione-*`, docs lịch sử rewrite tên.
    `is_busy_scope`/blocked gate, áp cho sidebar + tabs + palette); badge
    `ctr:paused` + dot warn; base 38 + agent 40 + workspace 58 + desktop
    35 xanh, Xvfb smoke sạch.
-2. M6 còn lại: Open-Workspace container wiring production (`rt.fleet()`
-   callsite: `open_task_with` với `PodmanProvider`) + live podman
+2. M6 wiring production DONE (W1/W2 always-container: `pending_runs` →
+   `Running` → `spawn_agent_in_container` via `PodmanProvider` + `with_secrets`;
+   nút ▶ per-row Fleet, prompt composer, agent first-present; `select_worktree`
+   wake/pause đã ở M5); backlog Agent Orchestrator (`Send all` fan-out) để roadmap.
 3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.
 
 ## Blockers

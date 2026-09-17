@@ -51,16 +51,19 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [x] `Supervisor` (backend+workspace/task) + kanban-lite `Dispatcher` 60s
       (structs + tests; runtime sweep wiring pending)
 
-## M5 — Sandbox container (1 container / workspace, ADR-0006 thay MicroVM)
+## M5 — Sandbox container (ADR-0006 → ADR-0007, 1 container / worktree)
 
 - [x] `PodmanProvider` (exec `-e` secrets-via-env, shell `exec -it` dưới pty)
       + `probe_podman` → fallback Host (CI xanh không podman)
-- [x] `ContainerManager` (probe→pull→run→ready, timeouts) + `ContainerState`
-      (`Missing|Pulling|Running|Stopped|Error`) + image pin + live-gate
-      `DIONE_LIVE_PODMAN=1`
-- [x] UI: badge `ctr:` ở Fleet + banner Host mode khi mất podman (Lab 6)
+- [x] `ContainerManager` (probe→pull→run→ready→`pause`/`unpause`, `Paused` +
+      `inspect_state`, overlay vfs caveat) + `ContainerState`
+      (`Missing|Pulling|Running|Paused|Stopped|Error`) + image pin + live-gate
+      `DIONE_LIVE_PODMAN=1` (2/2 xanh)
+- [x] UI: badge `ctr:`/`ctr:paused` ở Fleet + banner Host mode (Lab 6)
 - [x] Xóa `vm` (CH/seed/vsock/uds/keys/manager) + `microvm.rs` + `ssh_info`
-- [ ] Live lần đầu trên máy podman: Lab 2/3 xanh
+- [x] Live lần đầu trên máy podman: Lab 2/3 xanh (vfs+crun workaround, `podman ps` 1 container)
+- [x] Per-worktree + sleep (ADR-0007): `worktree_key` + `Pause`/`Unpause` idle-only,
+      `select_worktree` wake/pause, live + Xvfb re-verify
 - Ghi chú: MicroVM (CH) đã implement để validate seam rồi xóa (ADR-0006),
   podman rootless là engine duy nhất. History còn trong git.
 
@@ -69,11 +72,11 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [x] Local pty tab + scrollback/search (Host: `ShellChannel`/`HostShell`,
       terminal tab viewer + input + filter; Xvfb smoke sạch)
 - [x] `PodmanProvider::shell` (`exec -it` dưới pty, preview `-p 41xx:3000`)
-      + `ContainerThread` (Ensure/Stop/OpenShell, seam + fake-podman tests)
+      + `ContainerThread` (Ensure/Stop/Pause/Unpause/OpenShell, seam + fake-podman tests)
 - [x] `TerminalAdapter` (`portable-pty`) + kit đầu `kits/opencode.sh`
       (pin/verify + fake-guest tests; `Working` heuristic + `mark_done`)
-- [ ] Còn lại: Open-Workspace container wiring production (`rt.fleet()`
-      callsite: `open_task_with` với `PodmanProvider`) + live podman
+- [x] Wiring production (W1/W2): nút ▶ per-worktree (always-container: `Ensure`/`Unpause` → `pending_runs` → `Running` → `spawn_agent_in_container` với `PodmanProvider` + BYOK `with_secrets`; prompt từ composer, agent = first-present CLI; `select_worktree` wake/pause đã tách ở M5)
+- [ ] Backlog — Agent Orchestrator (đề xuất sau M10): composer fan-out `Send all` spawn N tasks trong containers song song (1 prompt → N worktrees), so với nút ▶ per-row hiện tại (1 prompt → 1 worktree). Để roadmap, chưa làm.
 
 ## M7 — Fleet reliability (học Hermes kanban) ✅ done (Host-only)
 

@@ -78,9 +78,12 @@ cargo test -p workspace agents && cargo test -p desktop top_bar
 
 - Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh
   (`●`), thiếu binary → tick đỏ (`○`); chưa có file → picker trống.
-- Nửa sau của lab (fan-out 1 prompt → 2 tasks → diff cả 2) còn BLOCKED:
-  driver `open_task_with` đã có + tests xanh nhưng chưa có callsite
-  production (chưa có nút/command nào gọi `rt.fleet()` trong app).
+- Nửa sau (chạy agent trong container): gõ prompt vào composer, bấm ▶
+  per-row ở Fleet (luôn container: `Ensure`/`Unpause` → `pending_runs` →
+  `Running` → `spawn_agent_in_container` với `PodmanProvider` + BYOK
+  `with_secrets`; agent = first-present CLI). Fan-out `Send all`
+  (1 prompt → N worktrees) là backlog Agent Orchestrator (để roadmap,
+  chưa làm).
 
 ## Lab 5: fan-out + merge (Host, M2)
 
