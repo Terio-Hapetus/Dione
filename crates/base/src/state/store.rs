@@ -273,9 +273,11 @@ impl Store {
             return WorktreeStatus::NeedsYou;
         }
         match self.statuses.get(sid) {
-            Some(SessionStatus::Busy) | Some(SessionStatus::Retry { .. }) => {
-                WorktreeStatus::Working
-            }
+            Some(SessionStatus::Busy) => WorktreeStatus::Working,
+            // Backoff/rate-limit (M9f): stuck on the provider, not
+            // progressing — same attention class as a permission gate,
+            // so it sorts into the review queue instead of looking busy.
+            Some(SessionStatus::Retry { .. }) => WorktreeStatus::NeedsYou,
             _ => {
                 if self.messages.get(sid).is_some_and(|m| !m.is_empty()) {
                     WorktreeStatus::Done
@@ -340,7 +342,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worktree::WorktreeRecord;
+    use crate::worktree::{WorktreeRecord, WorktreeStatus};
     use opencode_codes::protocol_generated::types::{
         TextPart, TextPartInputTime, UserMessage, UserMessageModel, UserMessageTime,
     };
@@ -373,6 +375,30 @@ mod tests {
     fn set_active_rejects_unknown() {
         let mut s = Store::default();
         assert!(!s.set_active("nope"));
+    }
+
+    #[test]
+    fn retry_status_surfaces_as_needs_you() {
+        let mut s = Store::default();
+        let mut r = record("feat-r");
+        r.session_id = Some("s1".into());
+        s.upsert_worktree(r);
+        // No session yet: still creating.
+        assert_eq!(s.worktree_status("feat-r"), WorktreeStatus::Creating);
+        s.statuses.insert("s1".into(), SessionStatus::Busy);
+        assert_eq!(s.worktree_status("feat-r"), WorktreeStatus::Working);
+        // Backoff/rate-limit (M9f): attention, not fake-busy.
+        s.statuses.insert(
+            "s1".into(),
+            SessionStatus::Retry {
+                action: None,
+                attempt: 1,
+                message: "slow down".into(),
+                next: 3000,
+            },
+        );
+        assert_eq!(s.worktree_status("feat-r"), WorktreeStatus::NeedsYou);
+        assert_eq!(s.worktree_status("nope"), WorktreeStatus::Creating);
     }
 
     #[test]

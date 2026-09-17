@@ -19,11 +19,23 @@ impl HostProvider {
 
 impl WorkspaceProvider for HostProvider {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut> {
+        self.exec_with_env(cmd, cwd, &[])
+    }
+
+    /// Host injection: secrets become process env of the spawned command
+    /// (same `-e` semantics as the container path, no disk involved).
+    fn exec_with_env(
+        &mut self,
+        cmd: &[&str],
+        cwd: &Path,
+        env: &[(&str, &str)],
+    ) -> anyhow::Result<ExecOut> {
         let (bin, args) = cmd
             .split_first()
             .ok_or_else(|| anyhow::anyhow!("exec: empty command"))?;
         let output = Command::new(bin)
             .args(args)
+            .envs(env.iter().copied())
             .current_dir(cwd)
             .output()
             .map_err(|e| anyhow::anyhow!("exec {bin} failed to spawn: {e:#}"))?;
@@ -167,6 +179,23 @@ mod tests {
         let out = h.exec(&["sh", "-c", "exit 3"], Path::new("/tmp")).unwrap();
         assert!(!out.success());
         assert_eq!(out.code, Some(3));
+    }
+
+    #[test]
+    fn env_injection_reaches_the_child() {
+        let mut h = HostProvider::new();
+        let out = h
+            .exec_with_env(
+                &["sh", "-c", "echo $M9E_PROBE"],
+                Path::new("/tmp"),
+                &[("M9E_PROBE", "yes")],
+            )
+            .unwrap();
+        assert!(out.success());
+        assert_eq!(out.stdout.trim(), "yes");
+        // Empty env delegates to plain exec.
+        let out = h.exec(&["echo", "plain"], Path::new("/tmp")).unwrap();
+        assert_eq!(out.stdout.trim(), "plain");
     }
 
     /// Read with a deadline: pty echo is fast locally, but CI load varies.

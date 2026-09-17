@@ -105,14 +105,21 @@ impl DioneApp {
     }
 
     /// Agent picker ticks (Lab 4): `name ●` present, `name ○` missing.
+    /// Agents with `env_keys` (M9e BYOK) append `◆` (all keys in the
+    /// keychain) or `◇` (some missing); values are never displayed.
     /// Empty registry renders nothing.
     pub(crate) fn render_agent_ticks(&self, dark: bool) -> impl IntoElement {
         let mut row = div().flex().items_center().gap_1();
         for name in &self.agent_names {
             let ok = self.agent_ok.get(name).copied().unwrap_or(false);
             let dot = if ok { ok_color() } else { muted_for(dark) };
+            let env = match self.agent_env.get(name) {
+                Some(true) => " ◆",
+                Some(false) => " ◇",
+                None => "",
+            };
             row = row.child(
-                Label::new(format!("{} {}", name, if ok { "●" } else { "○" }))
+                Label::new(format!("{} {}{}", name, if ok { "●" } else { "○" }, env))
                     .text_size(px(11.))
                     .text_color(dot),
             );
@@ -155,5 +162,27 @@ mod tests {
         assert_eq!(names, vec!["bad".to_string(), "good".to_string()]);
         assert!(ok["good"]);
         assert!(!ok["bad"]);
+    }
+
+    #[test]
+    fn env_status_marks_full_partial_and_keyless() {
+        use crate::app::load_env_status;
+        use workspace::MockSecrets;
+
+        let p = write_agents(
+            "[agents.full]\nbin = \"sh\"\nenv_keys = [\"A\", \"B\"]\n\
+             [agents.part]\nbin = \"sh\"\nenv_keys = [\"A\", \"C\"]\n\
+             [agents.plain]\nbin = \"sh\"\n",
+        );
+        let secrets = MockSecrets::new()
+            .with("full/A", "1")
+            .with("full/B", "2")
+            .with("part/A", "1");
+        let got = load_env_status(Some(&p), &secrets);
+        assert_eq!(got.get("full"), Some(&true));
+        assert_eq!(got.get("part"), Some(&false));
+        // No env_keys → absent (no glyph), never false.
+        assert!(!got.contains_key("plain"));
+        assert!(load_env_status(None, &secrets).is_empty());
     }
 }

@@ -1,6 +1,25 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
+/// Re-run a spawn closure on spurious ETXTBSY (errno 26, "text file
+/// busy"). Seen under parallel test load on overlayfs where a just-written
+/// fake CLI is exec'd while the page cache settles; system binaries hit
+/// this only mid-package-update. Bounded, ETXTBSY-specific, 15ms worst
+/// case. Shared by every CLI seam in this crate (`podman`, `secret-tool`).
+pub(crate) fn retry_busy<T>(mut spawn: impl FnMut() -> std::io::Result<T>) -> std::io::Result<T> {
+    let mut r = spawn();
+    for _ in 0..2 {
+        match &r {
+            Err(e) if e.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                r = spawn();
+            }
+            _ => break,
+        }
+    }
+    r
+}
+
 /// Captured child output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecOut {
@@ -21,6 +40,21 @@ impl ExecOut {
 /// `exec` is the non-interactive surface.
 pub trait WorkspaceProvider: Send {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut>;
+    /// Non-interactive exec with secret env injection (M9e BYOK).
+    /// Default: empty env delegates to `exec`; non-empty env on a backend
+    /// without injection support is a loud error, never silent inheritance.
+    fn exec_with_env(
+        &mut self,
+        cmd: &[&str],
+        cwd: &Path,
+        env: &[(&str, &str)],
+    ) -> anyhow::Result<ExecOut> {
+        if env.is_empty() {
+            self.exec(cmd, cwd)
+        } else {
+            anyhow::bail!("env injection not supported by this provider")
+        }
+    }
     /// Interactive shell in `cwd`. Default: unsupported (override per
     /// backend; Host and Podman use `portable-pty`).
     fn shell(&mut self, _cwd: &Path) -> anyhow::Result<Box<dyn ShellChannel>> {

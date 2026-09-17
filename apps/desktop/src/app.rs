@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use base::{Command, DiffNote, RuntimeHandle, Store};
+use base::{Command, DiffNote, RuntimeHandle, Store, UsageSample};
 use gpui::*;
 use gpui_component::{
     ActiveTheme as _,
@@ -24,6 +24,7 @@ pub(crate) enum RightTab {
     Context,
     Diff,
     File,
+    Costs,
 }
 
 pub struct DioneApp {
@@ -56,6 +57,9 @@ pub struct DioneApp {
     pub(crate) agent_names: Vec<String>,
     /// Name → binary present on `PATH` (green/red tick, Lab 4).
     pub(crate) agent_ok: BTreeMap<String, bool>,
+    /// Name → all `env_keys` in the keychain (M9e `◆`/`◇`; absent =
+    /// agent declares no keys). Refreshed on the slow loop.
+    pub(crate) agent_env: BTreeMap<String, bool>,
     /// Snapshot polls since startup; slow refreshes key off this.
     pub(crate) polls: u64,
     /// Local pty tab state (M6c2). `None` until first opened.
@@ -83,6 +87,9 @@ pub struct DioneApp {
         Option<std::sync::mpsc::Receiver<crate::container_thread::ShellReply>>,
     /// True while a guest shell is in flight (placeholder text).
     pub(crate) term_pending: bool,
+    /// Usage snapshot for the Costs tab (M9d): drained from the fleet
+    /// inbox on the snapshot loop, folded by `views::costs`.
+    pub(crate) usage: Vec<UsageSample>,
 }
 
 /// Snapshot polls per slow refresh: 375 × 160ms ≈ 60s (same cadence as
@@ -98,6 +105,38 @@ pub(crate) fn load_agent_statuses(path: Option<&Path>) -> (Vec<String>, BTreeMap
     let reg = load_agents_toml(p);
     let names: Vec<String> = reg.keys().cloned().collect();
     (names, probe_all(&reg))
+}
+
+/// Load per-agent keychain presence (M9e BYOK): name → all `env_keys`
+/// present in `secrets`. Agents without `env_keys` stay absent (no glyph);
+/// values are never read back for display.
+pub(crate) fn load_env_status(
+    path: Option<&Path>,
+    secrets: &dyn workspace::Secrets,
+) -> BTreeMap<String, bool> {
+    let Some(p) = path else {
+        return BTreeMap::new();
+    };
+    load_agents_toml(p)
+        .iter()
+        .filter(|(_, e)| !e.env_keys.is_empty())
+        .map(|(n, e)| {
+            let ok = e.env_keys.iter().all(|k| {
+                secrets
+                    .get(&workspace::secret_account(n, k))
+                    .ok()
+                    .flatten()
+                    .is_some()
+            });
+            (n.clone(), ok)
+        })
+        .collect()
+}
+
+/// Keychain backend for presence checks: `None` when no Secret Service
+/// CLI is around (slow loop then reports nothing instead of ENOENTs).
+fn env_secrets() -> Option<workspace::CliSecrets> {
+    workspace::probe_secret_tool().then(workspace::CliSecrets::new)
 }
 
 impl DioneApp {
@@ -185,6 +224,13 @@ impl DioneApp {
                     if vm_changed {
                         cx.notify();
                     }
+                    // Usage snapshot for the Costs tab (M9d): cheap
+                    // Vec compare, notify only on change.
+                    let usage = app.rt.fleet().collect_usage();
+                    if usage != app.usage {
+                        app.usage = usage;
+                        cx.notify();
+                    }
                     // Guest shell arrival (W3).
                     if app.poll_pending_shell() {
                         cx.notify();
@@ -208,6 +254,9 @@ impl DioneApp {
 
         let store = rt.snapshot();
         let (agent_names, agent_ok) = load_agent_statuses(default_agents_path().as_deref());
+        let agent_env = env_secrets()
+            .map(|s| load_env_status(default_agents_path().as_deref(), &s))
+            .unwrap_or_default();
         let vm = ContainerThread::spawn();
         Self {
             rt,
@@ -228,6 +277,7 @@ impl DioneApp {
             vm_states: BTreeMap::new(),
             agent_names,
             agent_ok,
+            agent_env,
             polls: 0,
             term: None,
             show_terminal: false,
@@ -238,6 +288,7 @@ impl DioneApp {
             palette_input,
             pending_shell: None,
             term_pending: false,
+            usage: Vec::new(),
         }
     }
 
@@ -269,6 +320,9 @@ impl DioneApp {
         let (names, ok) = load_agent_statuses(default_agents_path().as_deref());
         self.agent_names = names;
         self.agent_ok = ok;
+        self.agent_env = env_secrets()
+            .map(|s| load_env_status(default_agents_path().as_deref(), &s))
+            .unwrap_or_default();
     }
 
     /// Record a workspace container state for the Fleet badge.

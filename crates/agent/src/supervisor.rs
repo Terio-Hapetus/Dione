@@ -5,9 +5,13 @@
 //! `apply_agent_event`. Hook position A from the deep dive: after
 //! reconcile, before publish — so `poll()` must stay non-blocking.
 
+use std::collections::BTreeMap;
+
 use base::state::Store;
 use base::transcript::TaskId;
-use workspace::{Task, TaskStatus, WorkspaceProvider, handoff_summary};
+use base::{MetricsLog, UsageSample};
+use workspace::{AgentEntry, Secrets, Task, TaskStatus, WorkspaceProvider, handoff_summary};
+use workspace::{ResolvedEnv, resolve_task_env};
 
 use super::agent::{AgentBackend, AgentEvent, AgentStatus, apply_agent_event};
 
@@ -21,6 +25,12 @@ pub struct Supervisor {
     /// Backend good-terminal hits (`Idle`/`Done`) since the last drain
     /// (fix-2 success reset, mirrors `error_hits`).
     success_hits: Vec<TaskId>,
+    /// Usage observations drained this session (M9c). Lives here — not in
+    /// the frozen `Store` — and reads attribution from `task` below.
+    metrics: MetricsLog,
+    /// BYOK secrets (M9e): registry snapshot + keychain backend. `None` =
+    /// unconfigured (tests, drivers without secrets); `task_env` is empty.
+    secrets: Option<(BTreeMap<String, AgentEntry>, Box<dyn Secrets>)>,
 }
 
 impl Supervisor {
@@ -31,6 +41,8 @@ impl Supervisor {
             task,
             error_hits: Vec::new(),
             success_hits: Vec::new(),
+            metrics: MetricsLog::new(),
+            secrets: None,
         }
     }
 
@@ -40,6 +52,51 @@ impl Supervisor {
 
     pub fn task_id(&self) -> TaskId {
         self.task.id
+    }
+
+    /// Usage drained so far (M9c control-room reads this).
+    pub fn metrics(&self) -> &MetricsLog {
+        &self.metrics
+    }
+
+    /// Attach BYOK secrets (M9e): `registry` is the `agents.toml` snapshot,
+    /// `backend` the OS keychain. Opt-in so drivers/tests without secrets
+    /// keep working unchanged; production wires it at task open.
+    pub fn with_secrets(
+        mut self,
+        registry: BTreeMap<String, AgentEntry>,
+        backend: Box<dyn Secrets>,
+    ) -> Self {
+        self.secrets = Some((registry, backend));
+        self
+    }
+
+    /// Resolved spawn env for this task's `agent_ref` (empty when no
+    /// secrets attached or no keys configured). Callers inject it via
+    /// `exec_with_env` — never onto disk.
+    pub fn task_env(&self) -> ResolvedEnv {
+        match &self.secrets {
+            Some((reg, backend)) => resolve_task_env(reg, &**backend, &self.task.agent_ref),
+            None => ResolvedEnv::default(),
+        }
+    }
+
+    /// Fill blank attribution from the task: backend-stamped values win,
+    /// `agent_ref` / `model_override` backfill the rest.
+    fn stamp_usage(&self, s: &UsageSample) -> UsageSample {
+        let mut out = s.clone();
+        if out.agent.is_empty() {
+            out.agent = self.task.agent_ref.clone();
+        }
+        if out.model.is_empty() {
+            out.model = self
+                .task
+                .model_override
+                .as_ref()
+                .map(|(p, m)| format!("{p}/{m}"))
+                .unwrap_or_default();
+        }
+        out
     }
 
     /// Record which opencode session feeds this task (M4c-2 wires the
@@ -81,6 +138,10 @@ impl Supervisor {
                     self.success_hits.push(self.task.id);
                 }
                 _ => {}
+            }
+            if let AgentEvent::Usage(s) = &ev {
+                let stamped = self.stamp_usage(s);
+                self.metrics.record(stamped);
             }
             apply_agent_event(store, &ev);
         }
@@ -158,6 +219,10 @@ impl base::runtime::fleet::SupervisedTask for Supervisor {
 
     fn unbind_session(&mut self, session_id: &str) {
         self.backend.unbind_session(session_id);
+    }
+
+    fn usage_samples(&self) -> Vec<UsageSample> {
+        self.metrics.samples().to_vec()
     }
 }
 
@@ -268,6 +333,106 @@ mod tests {
         // Second tick: cursor dedup, no duplicate messages.
         sup.tick(&mut store);
         assert_eq!(store.transcripts.get(&sid_task).map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn tick_records_usage_with_task_attribution() {
+        use crate::agent::AgentEvent;
+        use base::UsageSample;
+
+        fn usage(
+            task: TaskId,
+            agent: &str,
+            model: &str,
+            input: f64,
+            cost: Option<f64>,
+        ) -> AgentEvent {
+            AgentEvent::Usage(UsageSample {
+                task,
+                agent: agent.into(),
+                model: model.into(),
+                input,
+                output: 0.0,
+                cache: 0.0,
+                cost,
+                ts: 7,
+            })
+        }
+        let task = Task::new("feat-u", "claude").with_model("anthropic", "sonnet");
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        // Blank attribution backfills from the task; stamped values win.
+        backend.emit(usage(id, "", "", 3.0, None));
+        backend.emit(usage(id, "custom", "m", 1.0, Some(0.5)));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        let by_agent = sup.metrics().by_agent(u64::MAX, None);
+        assert_eq!(by_agent["claude"].tokens(), 3.0);
+        assert!(by_agent["claude"].cost_unknown);
+        assert_eq!(by_agent["custom"].cost, 0.5);
+        let by_model = sup.metrics().by_model(u64::MAX, None);
+        assert!(by_model.contains_key("anthropic/sonnet"));
+        assert!(by_model.contains_key("m"));
+    }
+
+    #[test]
+    fn usage_samples_flow_through_the_fleet_seam() {
+        use crate::agent::AgentEvent;
+        use base::UsageSample;
+        use base::runtime::FleetInbox;
+        use base::runtime::fleet::SupervisedTask;
+
+        let task = Task::new("feat-seam", "mock");
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Usage(UsageSample {
+            task: id,
+            agent: String::new(),
+            model: String::new(),
+            input: 2.0,
+            output: 0.0,
+            cache: 0.0,
+            cost: None,
+            ts: 1,
+        }));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        // Direct seam read.
+        assert_eq!(SupervisedTask::usage_samples(&sup).len(), 1);
+        // Through the inbox — the UI's path.
+        let inbox = FleetInbox::new();
+        assert!(inbox.register_task(Box::new(sup)));
+        let got = inbox.collect_usage();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].agent, "mock");
+    }
+
+    #[test]
+    fn task_env_resolves_from_attached_secrets() {
+        use std::collections::BTreeMap;
+        use workspace::{AgentEntry, MockSecrets};
+
+        // No secrets attached: empty, never an error.
+        let (sup, _) = supervisor_with_prompt("hello");
+        assert_eq!(sup.task_env(), workspace::ResolvedEnv::default());
+        // Attached: present keys resolve, missing listed.
+        let task = Task::new("feat-env", "claude");
+        let mut reg = BTreeMap::new();
+        let mut entry = AgentEntry::new("claude", "-p");
+        entry.env_keys = vec!["A".into(), "B".into()];
+        reg.insert("claude".into(), entry);
+        let backend = MockSecrets::new().with("claude/A", "1");
+        let sup = Supervisor::new(
+            task,
+            Box::new(MockAgent::new()),
+            Box::new(MockWorkspace::new()),
+        )
+        .with_secrets(reg, Box::new(backend));
+        let env = sup.task_env();
+        assert_eq!(env.vars, vec![("A".into(), "1".into())]);
+        assert_eq!(env.missing, vec!["B".to_string()]);
     }
 
     #[test]

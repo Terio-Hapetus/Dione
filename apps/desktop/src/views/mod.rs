@@ -1,5 +1,6 @@
 pub mod chat;
 pub mod composer;
+pub mod costs;
 pub mod diff;
 pub mod file;
 pub mod palette;

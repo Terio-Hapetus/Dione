@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::host::HostShell;
-use super::provider::{ExecOut, ShellChannel, WorkspaceProvider};
+use super::provider::{ExecOut, ShellChannel, WorkspaceProvider, retry_busy};
 
 /// Container workdir. Podman bind-mounts the workspace at this path
 /// (`-v <host_root>:<ctr_dir>:rw,Z`), replacing the MicroVM virtiofs
@@ -90,9 +90,7 @@ impl PodmanProvider {
         argv.push(dir);
         argv.push(self.container.clone());
         argv.extend(cmd.iter().map(|s| s.to_string()));
-        let out = Command::new(&self.bin)
-            .args(&argv)
-            .output()
+        let out = retry_busy(|| Command::new(&self.bin).args(&argv).output())
             .map_err(|e| anyhow::anyhow!("podman spawn failed: {e:#}"))?;
         Ok(ExecOut {
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -105,6 +103,17 @@ impl PodmanProvider {
 impl WorkspaceProvider for PodmanProvider {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> anyhow::Result<ExecOut> {
         self.exec_with_env(cmd, cwd, &[])
+    }
+
+    /// Trait seam override: forwards to the inherent `-e` injector above
+    /// (UFCS — inherent methods shadow trait ones, so this is explicit).
+    fn exec_with_env(
+        &mut self,
+        cmd: &[&str],
+        cwd: &Path,
+        env: &[(&str, &str)],
+    ) -> anyhow::Result<ExecOut> {
+        PodmanProvider::exec_with_env(self, cmd, cwd, env)
     }
     // shell(): default unsupported until P2.
 
@@ -180,6 +189,16 @@ mod tests {
         }
 
         fn args(&self) -> String {
+            // Pty spawns return before the child is scheduled: under load
+            // the script may not have run its first `echo` yet (the test's
+            // own keystroke echo can satisfy `read_until` first). Poll
+            // briefly instead of racing it.
+            for _ in 0..200 {
+                if let Ok(s) = std::fs::read_to_string(self._dir.join("args.txt")) {
+                    return s;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
             std::fs::read_to_string(self._dir.join("args.txt")).unwrap()
         }
     }
@@ -224,6 +243,22 @@ mod tests {
         assert!(argv.contains("-e K=V"), "{argv}");
         assert!(argv.contains("-e A B=x"), "{argv}");
         assert!(argv.contains("-w /workspace/sub"), "{argv}");
+    }
+
+    /// Trait-object dispatch reaches the `-e` injector (the path
+    /// `Supervisor::task_env` callers use through `dyn WorkspaceProvider`).
+    #[test]
+    fn trait_env_injection_hits_the_injector() {
+        let fake = FakePodman::new("", 0);
+        let mut p: Box<dyn WorkspaceProvider> = Box::new(provider(&fake));
+        let out = p
+            .exec_with_env(&["env"], Path::new("/repo"), &[("K", "V")])
+            .unwrap();
+        assert!(out.success());
+        assert!(fake.args().contains("-e K=V"), "{}", fake.args());
+        // Empty env still delegates to plain exec.
+        let out = p.exec(&["echo"], Path::new("/repo")).unwrap();
+        assert!(out.success());
     }
 
     #[test]

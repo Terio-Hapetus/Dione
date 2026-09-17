@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use crate::metrics::UsageSample;
 use crate::state::Store;
 use crate::transcript::TaskId;
 
@@ -62,6 +63,11 @@ pub trait SupervisedTask: Send {
     fn bind_session(&mut self, _session_id: &str) {}
     /// Forget a retired session. Default: ignore.
     fn unbind_session(&mut self, _session_id: &str) {}
+    /// Usage observations for the M9 control room. Default: none
+    /// (stateless stubs); `agent::Supervisor` overrides from its log.
+    fn usage_samples(&self) -> Vec<UsageSample> {
+        Vec::new()
+    }
 }
 
 /// Handoff data (M7c): everything a driver needs to open a continuation
@@ -270,6 +276,16 @@ impl FleetInbox {
     pub fn task_count(&self) -> usize {
         self.tasks.lock().map(|t| t.len()).unwrap_or(0)
     }
+
+    /// Snapshot every task's usage samples for the M9 control room.
+    /// Locking mirrors `task_count`; poisoned lock yields empty, never a
+    /// crash. The UI thread calls this on its 160ms loop.
+    pub fn collect_usage(&self) -> Vec<UsageSample> {
+        self.tasks
+            .lock()
+            .map(|tasks| tasks.iter().flat_map(|t| t.usage_samples()).collect())
+            .unwrap_or_default()
+    }
 }
 
 /// Poll ticks per sweep: 60s sweep over a 2s poll (matches the providers
@@ -405,6 +421,23 @@ mod tests {
         fn bind_session(&mut self, _session_id: &str) {}
 
         fn unbind_session(&mut self, _session_id: &str) {}
+    }
+
+    /// Stub with usage: exercises `collect_usage` aggregation.
+    struct UsageStub {
+        sample: UsageSample,
+    }
+
+    impl SupervisedTask for UsageStub {
+        fn task_id(&self) -> TaskId {
+            self.sample.task
+        }
+
+        fn tick(&mut self, _store: &mut Store) {}
+
+        fn usage_samples(&self) -> Vec<UsageSample> {
+            vec![self.sample.clone()]
+        }
     }
 
     struct StubSweeper {
@@ -634,6 +667,38 @@ mod tests {
         assert!(inbox.register_task(Box::new(mk(None))));
         assert!(inbox.register_task(Box::new(mk(None))));
         assert_eq!(inbox.task_count(), 4);
+    }
+
+    #[test]
+    fn collect_usage_aggregates_stub_samples() {
+        use crate::transcript::Cost;
+
+        let inbox = FleetInbox::new();
+        // Empty fleet: empty snapshot, never a crash.
+        assert!(inbox.collect_usage().is_empty());
+        // Default stubs contribute nothing.
+        assert!(inbox.register_task(Box::new(StubTask::new())));
+        assert!(inbox.collect_usage().is_empty());
+        let id = TaskId::new();
+        assert!(inbox.register_task(Box::new(UsageStub {
+            sample: UsageSample::from_cost(
+                id,
+                "opencode",
+                "gpt",
+                Cost {
+                    input: 5.0,
+                    output: 1.0,
+                    cache: 0.0,
+                    cost: 0.1
+                },
+                42,
+            ),
+        })));
+        let got = inbox.collect_usage();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].task, id);
+        assert_eq!(got[0].agent, "opencode");
+        assert_eq!(got[0].cost, Some(0.1));
     }
 
     #[test]

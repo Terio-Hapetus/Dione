@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// One agent backend entry: `[agents.<name>] bin prompt_arg kit?`.
+/// One agent backend entry: `[agents.<name>] bin prompt_arg kit? env_keys?`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentEntry {
     /// Binary to probe, e.g. `"claude"`, `"codex"`, `"opencode"`.
@@ -16,6 +16,9 @@ pub struct AgentEntry {
     pub prompt_arg: String,
     /// Optional `kits/<name>.sh` installed at VM boot (ADR-0004).
     pub kit: Option<String>,
+    /// Keychain keys injected as process env at spawn (M9e BYOK), e.g.
+    /// `["ANTHROPIC_API_KEY"]`. Empty = inherits the launcher env.
+    pub env_keys: Vec<String>,
 }
 
 impl AgentEntry {
@@ -24,6 +27,7 @@ impl AgentEntry {
             bin: bin.to_string(),
             prompt_arg: prompt_arg.to_string(),
             kit: None,
+            env_keys: Vec::new(),
         }
     }
 }
@@ -65,6 +69,17 @@ pub fn load_agents_toml(path: &Path) -> BTreeMap<String, AgentEntry> {
                     .unwrap_or("-p")
                     .to_string(),
                 kit: t.get("kit").and_then(|v| v.as_str()).map(str::to_string),
+                env_keys: t
+                    .get("env_keys")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             },
         );
     }
@@ -140,7 +155,7 @@ mod tests {
         let d = tmpdir();
         let p = write_toml(
             &d,
-            "[agents.claude]\nbin = \"claude\"\nprompt_arg = \"-p\"\nkit = \"kits/claude.sh\"\n\
+            "[agents.claude]\nbin = \"claude\"\nprompt_arg = \"-p\"\nkit = \"kits/claude.sh\"\nenv_keys = [\"ANTHROPIC_API_KEY\", \"\"]\n\
              [agents.codex]\nbin = \"codex\"\n",
         );
         let reg = load_agents_toml(&p);
@@ -151,9 +166,10 @@ mod tests {
                 bin: "claude".into(),
                 prompt_arg: "-p".into(),
                 kit: Some("kits/claude.sh".into()),
+                env_keys: vec!["ANTHROPIC_API_KEY".into()],
             }
         );
-        // prompt_arg defaults to -p, kit to None.
+        // prompt_arg defaults to -p, kit to None, env_keys to empty.
         assert_eq!(reg["codex"], AgentEntry::new("codex", "-p"));
     }
 

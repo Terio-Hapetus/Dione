@@ -67,19 +67,21 @@ fn podman_ensure_idempotent_shell_stop() {
     assert_eq!(mgr.ensure_running(&spec), ContainerState::Running);
     assert_eq!(count_named(&spec.name), 1, "ensure must not duplicate");
     // Interactive shell (same `exec -it` path the Terminal tab uses).
+    // Arithmetic needle: the pty echoes the typed line, so waiting for
+    // the literal input would pass without the container running anything.
     let mut p = PodmanProvider::new(&spec.name, &root);
     let mut sh = p.shell(Path::new(&root)).expect("container shell");
-    sh.write_bytes(b"echo live-shell-ok\n").unwrap();
+    sh.write_bytes(b"echo live-shell-$((6*7))\n").unwrap();
     let mut acc = Vec::new();
     for _ in 0..200 {
         acc.extend(sh.read_available());
-        if String::from_utf8_lossy(&acc).contains("live-shell-ok") {
+        if String::from_utf8_lossy(&acc).contains("live-shell-42") {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     assert!(
-        String::from_utf8_lossy(&acc).contains("live-shell-ok"),
+        String::from_utf8_lossy(&acc).contains("live-shell-42"),
         "shell roundtrip failed"
     );
     sh.kill().unwrap();

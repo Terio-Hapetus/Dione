@@ -150,6 +150,7 @@ impl DioneApp {
             (RightTab::Context, "context"),
             (RightTab::Diff, "diff"),
             (RightTab::File, "file"),
+            (RightTab::Costs, "costs"),
         ] {
             items.push(PaletteItem {
                 id: format!("view-{name}"),

@@ -23,6 +23,9 @@ pub struct TerminalAdapter {
     shells: BTreeMap<TaskId, Box<dyn ShellChannel>>,
     queue: VecDeque<AgentEvent>,
     done: BTreeSet<TaskId>,
+    /// Tasks whose output tripped [`rate_limited_output`] (M9f). Sticky
+    /// until the shell exits: the quota state outlives the scrolled line.
+    limited: BTreeSet<TaskId>,
     seq: u64,
 }
 
@@ -72,6 +75,26 @@ impl TerminalAdapter {
     }
 }
 
+/// Pty-output markers for provider rate limits (M9f). Case-insensitive
+/// substring match over stripped text — vendor backoff pages all contain
+/// one of these. Conservative on purpose: matching latches attention
+/// (NeedsInput), so obscure tokens stay out.
+pub fn rate_limited_output(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "rate limit",
+        "rate_limit",
+        "ratelimit",
+        "429",
+        "too many requests",
+        "quota exceeded",
+        "overloaded",
+        "try again later",
+    ]
+    .iter()
+    .any(|m| lower.contains(m))
+}
+
 impl AgentBackend for TerminalAdapter {
     fn spawn(&mut self, task: TaskId, prompt: &str) -> anyhow::Result<()> {
         self.send_prompt(task, prompt)
@@ -101,9 +124,13 @@ impl AgentBackend for TerminalAdapter {
                 continue;
             }
             let text = strip_ansi(&String::from_utf8_lossy(&raw));
-            if !text.trim().is_empty() {
-                out_ids.push((*task, text));
+            if text.trim().is_empty() {
+                continue;
             }
+            if rate_limited_output(&text) {
+                self.limited.insert(*task);
+            }
+            out_ids.push((*task, text));
         }
         for (task, text) in out_ids {
             let id = self.next_id(task, "a");
@@ -120,6 +147,13 @@ impl AgentBackend for TerminalAdapter {
         for (task, shell) in self.shells.iter_mut() {
             if self.done.remove(task) || !shell.is_alive() {
                 statuses.push((*task, AgentStatus::Done));
+            } else if self.limited.contains(task) {
+                statuses.push((
+                    *task,
+                    AgentStatus::NeedsInput {
+                        reason: "possible rate limit — see terminal".into(),
+                    },
+                ));
             } else {
                 statuses.push((*task, AgentStatus::Working));
             }
@@ -277,6 +311,40 @@ mod tests {
         let evs = ad.poll();
         // abort() queues Idle first; the dead shell then also reports Done.
         assert!(evs.contains(&AgentEvent::Status(task, AgentStatus::Idle)));
+        assert!(evs.contains(&AgentEvent::Status(task, AgentStatus::Done)));
+    }
+
+    #[test]
+    fn rate_limit_markers_latch_needs_input() {
+        use super::rate_limited_output;
+
+        assert!(rate_limited_output("Error 429: too many requests"));
+        assert!(rate_limited_output("RATE LIMIT exceeded, try again later"));
+        assert!(!rate_limited_output("all done, exit 0"));
+        assert!(!rate_limited_output(""));
+
+        let (mut ad, handle, task) = attached();
+        ad.spawn(task, "hi").unwrap();
+        let _ = ad.poll();
+        // Plain output: still Working.
+        handle.feed("working…\n");
+        let evs = ad.poll();
+        assert!(evs.contains(&AgentEvent::Status(task, AgentStatus::Working)));
+        // Marker output: NeedsInput, sticky across polls.
+        handle.feed("error: rate limit exceeded\n");
+        let evs = ad.poll();
+        assert!(evs.iter().any(|e| matches!(
+            e,
+            AgentEvent::Status(t, AgentStatus::NeedsInput { .. }) if *t == task
+        )));
+        let evs = ad.poll();
+        assert!(evs.iter().any(|e| matches!(
+            e,
+            AgentEvent::Status(t, AgentStatus::NeedsInput { .. }) if *t == task
+        )));
+        // Exit still wins: Done outranks the latch.
+        handle.kill_shell();
+        let evs = ad.poll();
         assert!(evs.contains(&AgentEvent::Status(task, AgentStatus::Done)));
     }
 

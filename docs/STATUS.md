@@ -24,7 +24,45 @@ M8 CLOSED (review++ trên branch feat/m7-fleet-reliability).
 PR #1 MERGED (`eeda103`): M7+M8 vào main; nhánh feat đã xóa (local + remote).
 Remote: Terio-Hapetus/Dione (đã chuyển từ hquoclong/Dione).
 Lưu ý env: mọi lệnh git/gh cần `env -u GH_TOKEN` (token cũ invalid đè credential).
-Next: live podman lần đầu (Lab 2/3, `DIONE_LIVE_PODMAN=1`) hoặc M9 (Cost/BYOK).
+M9a DONE (`metrics.rs`: `UsageSample{cost: Option}` + `MetricsLog`
+record/aggregate/window/group-by + `from_cost` bridge, `Cost` cũ frozen;
+base 36 + agent 35 + workspace 41 xanh, clippy 0 mới).
+M9b DONE (`usage_probe.rs`: parse Claude `message.usage` + Codex
+`token_count` JSONL (ISO/millis ts, defensive skip, fixture tests) +
+`scan_jsonl_logs` (cap 1024 files/32MB, missing→empty) + `QuotaWindow`
+(% chỉ khi có limit) + `samples_for` (cost None); base 36 + agent 35 +
+workspace 47 xanh, clippy 0 mới).
+M9c DONE (`AgentEvent::Usage` mới + `Supervisor.metrics` (stamp
+agent/model từ `Task`, `Store` frozen) + opencode bridge edge-triggered
+trong `collect_new` + `MockAgent`/applier arms; base 37 + agent 38 +
+workspace 47 xanh, clippy 0 mới).
+M9d DONE (control-room view: `SupervisedTask::usage_samples` (default
+rỗng) + `FleetInbox::collect_usage` + `rt.fleet()` poll vào
+`DioneApp::usage` + tab `Costs` (summarize per-agent/model, 5h tokens,
+`~`/`n/a` money rules) + palette action; base 37 + agent 38 +
+workspace 47 + desktop 32 xanh, Xvfb smoke sạch. Lưu ý: 1 fail lẻ
+workspace khi 3 crate chạy song song, pass 3/3 rerun — flake timing
+pty đã biết, tests mới đều pure).
+M9e DONE (keychain BYOK: `Secrets` trait + `MockSecrets` + `CliSecrets`
+qua `secret-tool` (zero dep mới, fake-bin seam) + `AgentEntry.env_keys`
++ `resolve_task_env` (missing liệt kê, không chuỗi rỗng) +
+`WorkspaceProvider::exec_with_env` (default bail khi có env; Host/ Podman
+override thật) + `Supervisor::with_secrets/task_env` (opt-in) + ticks
+`◆/◇` presence (values không bao giờ hiện); base 38 + agent 40 +
+workspace 55 + desktop 33 xanh, Xvfb smoke sạch).
+M9f DONE (rate-limit visibility: `agent_status_of` Retry → NeedsInput
+(attempt + message) + `TerminalAdapter` markers pty (`rate_limited_output`,
+latch tới Done) + `worktree_status` Retry → NeedsYou (vào review queue;
+`is_busy` giữ nguyên nên composer vẫn khóa khi backoff)).
+M9 CLOSED (metrics + probe + Usage pipeline + control-room + keychain +
+rate-limit; `Cost` cũ frozen, account switcher để sau).
+Flake song song workspace đã fix gốc 2 class (thấy 5/12 runs trước fix):
+ETXTBSY-spawn → `retry_busy` chung ở `provider.rs` (podman + containers +
+secret-tool; bounded, errno-26-only) + pty echo-shortcut (test chờ output
+thật: fake `args()` poll file, live test needle số học `6*7=42`); 12/12
++ 8/8 runs sạch sau fix + live 2/2 re-verify.
+Next: M6 container wiring production (`rt.fleet()` callsite) hoặc M10.
+rate-limit. Account switcher để sau M9 (đã chốt metrics trước).
 Mctr: podman thay MicroVM DONE (ADR-0006, FS-isolation + open egress):
 P1 `PodmanProvider::exec` + probe + mount-map, P2 shell `exec -it` dưới
 pty, P3 `ContainerManager` + `ContainerState` + live gate, P4

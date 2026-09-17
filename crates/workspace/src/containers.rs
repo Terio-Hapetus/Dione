@@ -11,6 +11,8 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::provider::retry_busy;
+
 /// Pinned guest image (digest-pin in production configs, tag here).
 pub const CTR_IMAGE: &str = "docker.io/library/ubuntu:24.04";
 /// Guest dev-server port published as `host 41xx` (preview convention).
@@ -75,9 +77,7 @@ impl ContainerManager {
     }
 
     fn run_cli(&self, args: &[String]) -> anyhow::Result<String> {
-        let out = Command::new(&self.bin)
-            .args(args)
-            .output()
+        let out = retry_busy(|| Command::new(&self.bin).args(args).output())
             .map_err(|e| anyhow::anyhow!("podman spawn failed: {e:#}"))?;
         if !out.status.success() {
             anyhow::bail!(

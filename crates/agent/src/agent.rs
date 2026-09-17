@@ -10,6 +10,7 @@ use opencode_codes::protocol_generated::types::SessionStatus;
 
 use base::state::Store;
 use base::transcript::{Cost, Role, TaskId, UnifiedMessage};
+use base::{UsageSample, now_unix};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentStatus {
@@ -25,6 +26,10 @@ pub enum AgentEvent {
     Message(UnifiedMessage),
     Status(TaskId, AgentStatus),
     Cost(TaskId, Cost),
+    /// Usage observation for the metrics log (M9c). Backends leave
+    /// attribution blank when unknown; the `Supervisor` stamps
+    /// `agent`/`model` from its `Task` at drain time.
+    Usage(UsageSample),
 }
 
 /// Agent socket: the agent never knows Host vs VM, only tasks.
@@ -69,7 +74,7 @@ impl MockAgent {
             AgentEvent::Message(m) => {
                 self.tasks.entry(m.task).or_insert(AgentStatus::Working);
             }
-            AgentEvent::Cost(_, _) => {}
+            AgentEvent::Cost(_, _) | AgentEvent::Usage(_) => {}
         }
         self.queue.push_back(ev);
     }
@@ -127,6 +132,9 @@ impl AgentBackend for MockAgent {
 pub struct OpencodeAdapter {
     sessions: BTreeMap<TaskId, String>,
     cursors: BTreeMap<TaskId, usize>,
+    /// Last cost forwarded as `Usage` per task (bridge is edge-triggered:
+    /// re-polling an unchanged total emits nothing).
+    last_cost: BTreeMap<TaskId, Cost>,
 }
 
 impl OpencodeAdapter {
@@ -140,6 +148,7 @@ impl OpencodeAdapter {
     pub fn unbind(&mut self, task: &TaskId) {
         self.sessions.remove(task);
         self.cursors.remove(task);
+        self.last_cost.remove(task);
     }
 
     pub fn session_of(&self, task: &TaskId) -> Option<&str> {
@@ -169,6 +178,8 @@ impl OpencodeAdapter {
 
     /// New transcript messages since the last call, plus a fresh
     /// `Status` per bound task. Idempotent: re-polling emits no dupes.
+    /// A changed task total also emits one `Usage` bridge event (M9c);
+    /// attribution is blank — the `Supervisor` stamps it at drain time.
     pub fn collect_new(&mut self, store: &Store) -> Vec<AgentEvent> {
         let mut out = Vec::new();
         let bound: Vec<(TaskId, String)> =
@@ -180,6 +191,18 @@ impl OpencodeAdapter {
                 out.push(AgentEvent::Message(m.clone()));
             }
             self.cursors.insert(task, fresh.len());
+            if let Some(cost) = store.costs.get(&task)
+                && self.last_cost.get(&task) != Some(cost)
+            {
+                self.last_cost.insert(task, *cost);
+                out.push(AgentEvent::Usage(UsageSample::from_cost(
+                    task,
+                    "",
+                    "",
+                    *cost,
+                    now_unix(),
+                )));
+            }
             out.push(AgentEvent::Status(task, self.status_of(store, &task)));
         }
         out
@@ -188,7 +211,18 @@ impl OpencodeAdapter {
 
 pub fn agent_status_of(s: &SessionStatus) -> AgentStatus {
     match s {
-        SessionStatus::Busy | SessionStatus::Retry { .. } => AgentStatus::Working,
+        SessionStatus::Busy => AgentStatus::Working,
+        // Backoff/rate-limit (M9f): not progressing on its own — the same
+        // attention class as a permission gate. Attempt + server message
+        // ride along so the UI (and M10 notify) can show the wait.
+        SessionStatus::Retry {
+            attempt, message, ..
+        } => AgentStatus::NeedsInput {
+            reason: format!(
+                "retry #{attempt}: {}",
+                message.chars().take(120).collect::<String>()
+            ),
+        },
         SessionStatus::Idle => AgentStatus::Idle,
     }
 }
@@ -237,13 +271,15 @@ impl AgentBackend for OpencodeAdapter {
 /// Narrowed applier: the M3d UI path writes transcripts directly from
 /// `AgentEvent`s instead of opencode `Event`s. Status is transient
 /// (consumer-side); cost replaces the task total (adapter owns accounting).
+/// `Usage` is a no-op here: the frozen `Store` gains no metrics field —
+/// the `Supervisor` records it into its own `MetricsLog` (M9c).
 pub fn apply_agent_event(store: &mut Store, ev: &AgentEvent) {
     match ev {
         AgentEvent::Message(m) => store.push_unified(m.clone()),
         AgentEvent::Cost(task, c) => {
             store.costs.insert(*task, *c);
         }
-        AgentEvent::Status(_, _) => {}
+        AgentEvent::Status(_, _) | AgentEvent::Usage(_) => {}
     }
 }
 
@@ -276,6 +312,15 @@ mod tests {
     fn status_mapping() {
         assert_eq!(agent_status_of(&SessionStatus::Busy), AgentStatus::Working);
         assert_eq!(agent_status_of(&SessionStatus::Idle), AgentStatus::Idle);
+        assert!(matches!(
+            agent_status_of(&SessionStatus::Retry {
+                action: None,
+                attempt: 2,
+                message: "rate limited, retrying".into(),
+                next: 5000,
+            }),
+            AgentStatus::NeedsInput { .. }
+        ));
     }
 
     #[test]
@@ -306,6 +351,62 @@ mod tests {
         assert_eq!(ad.session_of(&task), Some("s1"));
         ad.unbind(&task);
         assert_eq!(ad.session_of(&task), None);
+    }
+
+    fn usage_events(evs: &[AgentEvent]) -> Vec<UsageSample> {
+        evs.iter()
+            .filter_map(|e| match e {
+                AgentEvent::Usage(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn bridge_emits_usage_once_per_cost_change() {
+        let mut store = Store::default();
+        let task = store.task_for_session("s1");
+        let mut ad = OpencodeAdapter::new();
+        ad.bind(task, "s1");
+        // No cost yet: status only.
+        let first = ad.collect_new(&store);
+        assert!(first.iter().all(|e| matches!(e, AgentEvent::Status(_, _))));
+        // Cost appears: one Usage bridge (+ status), attribution blank.
+        store.costs.insert(
+            task,
+            Cost {
+                input: 5.0,
+                output: 1.0,
+                cache: 0.0,
+                cost: 0.1,
+            },
+        );
+        let second = ad.collect_new(&store);
+        let usages = usage_events(&second);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].task, task);
+        assert_eq!(usages[0].cost, Some(0.1));
+        assert!(usages[0].agent.is_empty());
+        // Unchanged total: edge-triggered, no second Usage.
+        let third = ad.collect_new(&store);
+        assert!(usage_events(&third).is_empty());
+        // Changed total: emits again.
+        store.costs.insert(
+            task,
+            Cost {
+                input: 6.0,
+                output: 1.0,
+                cache: 0.0,
+                cost: 0.2,
+            },
+        );
+        let fourth = ad.collect_new(&store);
+        assert_eq!(usage_events(&fourth).len(), 1);
+        // Unbind clears the edge memory: rebind re-emits once.
+        ad.unbind(&task);
+        ad.bind(task, "s1");
+        let fifth = ad.collect_new(&store);
+        assert_eq!(usage_events(&fifth).len(), 1);
     }
 
     #[test]

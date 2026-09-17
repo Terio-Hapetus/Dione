@@ -11,6 +11,7 @@ impl DioneApp {
             (RightTab::Context, "context"),
             (RightTab::Diff, "diff"),
             (RightTab::File, "file"),
+            (RightTab::Costs, "costs"),
         ];
         let mut header = div().flex().gap_1().px_2().py_1();
         for (t, name) in tabs {
@@ -48,6 +49,7 @@ impl DioneApp {
             RightTab::Context => context_view(&self.store, cx),
             RightTab::Diff => self.render_diff(cx),
             RightTab::File => self.render_file(cx),
+            RightTab::Costs => self.render_costs(cx),
         };
 
         div()
