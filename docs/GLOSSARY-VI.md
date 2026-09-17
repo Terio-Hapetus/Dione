@@ -41,8 +41,14 @@ Dione: `<repo>/.dione-worktrees/<slug>` + branch `ade/<slug>`.
 
 ## Workspace — cả tầng làm việc
 
-1 repo + cấu hình + worktrees. Dione: **1 container / 1 workspace**
-(worktrees nằm trong bind-mount của container).
+1 repo + cấu hình + worktrees. Dione: **1 container / 1 worktree**
+(lazy, worktree rảnh → `pause`) nhưng bind-mount chung repo root
+`/workspace:rw` (worktrees vẫn share `.git`).
+
+## Quota / Usage — hạn xài và đo xài (M9)
+
+Tokens thật (đo local: codexbar-style JSONL) + %quota cửa sổ 5h khi có
+limit; tiền $ chỉ khi server báo (opencode) — thiếu thì `n/a`/`~$` lower-bound.
 
 ## Agent — người thợ trong phòng
 

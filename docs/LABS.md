@@ -93,3 +93,51 @@ cargo test -p workspace agents && cargo test -p desktop top_bar
 
 - Tắt mạng hoặc gỡ `podman` khỏi `PATH` (mô phỏng) → app phải hiện banner,
   giữ worktree, cho retry tay. Không crash.
+
+## Lab 7: Costs tab (M9d, không podman cũng chạy được)
+
+Mở tab `Costs` (bên phải: context/diff/file → costs) sau khi chạy 1 task
+bất kỳ (kể cả Host).
+
+```bash
+cargo test -p base -p agent -p workspace --lib   # 38 + 40 + 58 xanh (có costs)
+```
+
+- Đúng: tổng tokens hiện, breakdown per-agent / per-model có, 5h tokens
+  kèm tiền (`~$` = lower-bound khi có sample thiếu tiền, `n/a` = tokens-only).
+  Task terminal hiện `n/a` là đúng (không đoán tiền).
+- Trống: tab hiện empty-state "No usage yet" cho tới khi có task chạy.
+- Đỏ: đọc `ARCHITECTURE-v2.md#core-types`.
+
+## Lab 8: keychain BYOK (M9e, OS keychain)
+
+Tick `◆` (đủ keys) / `◇` (thiếu) cạnh `●`/`○` trong TopBar cho agent có
+`env_keys` trong `agents.toml` (ví dụ `env_keys = ["ANTHROPIC_API_KEY"]`).
+Values không bao giờ hiện.
+
+```bash
+# Ghi 1 key thử (cần GNOME session có secret-service / secret-tool):
+secret-tool store --label dione service dione account claude/ANTHROPIC_API_KEY <<<"sk-..."
+# Kiểm tra tick → ◆ (đủ); xóa → ◇
+secret-tool clear service dione account claude/ANTHROPIC_API_KEY
+cargo test -p workspace secrets && cargo test -p desktop top_bar
+```
+
+- Đúng: `secret-tool` không có / collection khóa → không crash, ticks không
+  có `◆`/`◇` (banner Host mode vẫn làm việc, agent thiếu key tự báo).
+- Đỏ: đọc `AGENT-ANY.md#secrets` + `WORKSPACE-VM.md#lifecycle` bước secrets.
+
+## Lab 9: rate-limit (M9f, không podman cũng chạy được)
+
+Mô phỏng backoff của provider: opencode `SessionStatus::Retry` hoặc
+pty chứa chuỗi `rate limit` / `429` / `quota exceeded` / `overloaded`.
+
+```bash
+cargo test -p base -- --nocapture worktree_status   # Retry → NeedsYou
+cargo test -p agent terminal -- --nocapture rate_limit
+```
+
+- Đúng: worktree đang backoff vào review queue `NeedsYou` (attention-first)
+  chứ không giả `Working`; terminal task latch `NeedsInput` tới `Done` mới hết.
+  Composer vẫn khóa khi backoff (đúng, chưa tiến triển).
+- Đỏ: đọc `AGENT-ANY.md` bảng TerminalAdapter.

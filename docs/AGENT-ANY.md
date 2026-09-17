@@ -22,10 +22,16 @@ Xong: agent xuất hiện trong Agent picker, chạy được fan-out so với a
 | Adapter | Khi nào dùng | Transcript | Status |
 |---|---|---|---|
 | `OpencodeAdapter` | Agent có API/SSE (opencode hôm nay) | Rich (SSE) | Chính xác |
-| `TerminalAdapter` | Mọi CLI (Claude Code, Codex, Gemini…) | pty scrollback | Heuristic + nút `Mark done` |
+| `TerminalAdapter` | Mọi CLI (Claude Code, Codex, Gemini…) | pty scrollback | Heuristic + nút `Mark done` + latch rate-limit → NeedsInput tới Done |
 
 - `TerminalAdapter` dùng `portable-pty`. Hiển thị `Working(?)` khi không chắc.
+  Rate-limit (`rate limit`/`429`/`quota exceeded`/`overloaded`) latch `NeedsInput` tới khi `Done` (M9f); opencode `Retry` cũng `NeedsInput`.
 - Permission: adapter không support → hướng dẫn user trả lời trong terminal.
+
+## Secrets (M9e BYOK)
+
+`agents.toml` cho phép `env_keys = ["ANTHROPIC_API_KEY", ...]` per agent.
+Keys sống ở OS keychain (`secret-tool` → Secret Service, `account = "<agent>/<KEY>"`), bơm qua `-e K=V` lúc spawn (Host và `podman exec`), không vào container FS/log/UI. Thiếu key → tick `◇` (đủ → `◆`, values không bao giờ hiện). Không `secret-tool` → fallback env, CI vẫn xanh.
 
 ## Per-task override (học Hermes)
 

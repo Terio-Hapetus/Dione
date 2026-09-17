@@ -90,13 +90,19 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [x] Editor-lite p1: read-only viewer text-first (tab File, gutter số dòng,
       cap 256KB/2000 dòng); Tree-sitter grammars để sau (cần mạng)
 
-## M9 — Cost / BYOK
+## M9 — Cost / BYOK ✅ done (`243eafb`)
 
-- [ ] `metrics.rs`: tokens/cost per task/model/agent; control-room view
-- [ ] Account switcher + rate-limit visibility; secrets qua env (không vào container)
+- [x] `metrics.rs` (`a185480` → `243eafb` M9a: `UsageSample{cost: Option}` + `MetricsLog` record/aggregate/window/group-by + `from_cost` bridge, `Cost` cũ frozen)
+- [x] `usage_probe.rs` (M9b: parse Claude `message.usage` + Codex `token_count` JSONL, defensive skip, `scan_jsonl_logs`, `QuotaWindow` + `samples_for`)
+- [x] `AgentEvent::Usage` + `Supervisor.metrics` (M9c: stamp agent/model từ `Task`, opencode bridge edge-triggered, `MockAgent`/applier arms)
+- [x] Control-room view (M9d: `SupervisedTask::usage_samples` + `FleetInbox::collect_usage` + `DioneApp::usage` poll → tab `Costs` per-agent/model, 5h tokens, `~`/`n/a` money)
+- [x] Keychain BYOK (M9e: `Secrets` trait + `MockSecrets` + `CliSecrets` via `secret-tool`, `AgentEntry.env_keys` + `resolve_task_env`, `exec_with_env` Host/Podman, ticks `◆/◇`)
+- [x] Rate-limit visibility (M9f: `Retry` → NeedsInput/NeedsYou + `TerminalAdapter` markers pty, latch tới Done; `worktree_status` + review queue)
+- Ghi chú: `Cost` cũ frozen, account switcher để sau (→ M10). Keychain live-gate máy GNOME (CI vẫn xanh).
 
-## M10 — Remote / Notify (học Orca SSH + mobile)
+## M10 — Remote / Notify + Account switcher (học Orca SSH + mobile)
 
+- [ ] Account switcher (BYOK profiles, đổi env theo agent — tách từ M9)
 - [ ] SSH remote worktrees + host picker `~/.ssh/config`; cross-host dashboard
 - [ ] Telegram ping `done/needs-input` + `/followup` (trước app mobile)
 

@@ -52,7 +52,12 @@ Quy tắc chống vỡ legacy:
 // transcript: biên bản chung cho mọi agent
 enum Role { User, Agent, Tool }
 struct UnifiedMessage { id, task: TaskId, role: Role, text, tool: Option<ToolCall>, ts: u64 }
-struct Cost { input, output, cache, cost: f64 }
+struct Cost { input, output, cache, cost: f64 } // legacy, frozen M9a
+// M9 costs: Cost frozen, UsageSample{cost: Option<f64>} (None = tokens-only)
+// + MetricsLog (record/aggregate/window, cost_unknown) + usage_probe.rs
+// (Claude/Codex JSONL) → AgentEvent::Usage → Supervisor.metrics (stamp
+// agent/model từ Task, Store frozen) → FleetInbox::collect_usage →
+// DioneApp::usage → tab Costs (per-agent/model, 5h tokens, ~ / n/a).
 
 // agent: ổ cắm thay được, không khóa opencode
 trait AgentBackend: Send {
