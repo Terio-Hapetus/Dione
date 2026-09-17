@@ -172,7 +172,7 @@ impl DioneApp {
         self.show_palette = false;
         match action {
             PaletteAction::SelectWorktree(slug) => {
-                self.rt.send(Command::SelectWorktree { slug });
+                self.select_worktree(slug);
             }
             PaletteAction::SelectSession(id) => {
                 self.rt.send(Command::SelectSession { id });

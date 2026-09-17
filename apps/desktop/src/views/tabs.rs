@@ -63,9 +63,7 @@ impl DioneApp {
             let active = self.store.active_worktree.as_deref() == Some(slug.as_str());
             let select = slug.clone();
             let on_click = cx.listener(move |this, _: &ClickEvent, _, _| {
-                this.rt.send(Command::SelectWorktree {
-                    slug: select.clone(),
-                });
+                this.select_worktree(select.clone());
             });
             let mut btn = Button::new(SharedString::from(format!("wt-tab-{slug}")))
                 .label(format!("{glyph} {slug}"))

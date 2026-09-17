@@ -20,11 +20,14 @@ pub const PREVIEW_CTR_PORT: u16 = 3000;
 
 /// Lifecycle states. No `WaitingSsh`/`Mounting` — there is no guest
 /// SSH or virtiofs mount to wait for (anti-legacy rule, ADR-0006).
+/// `Paused` is ADR-0007 per-worktree sleep: `Running` → `pause` →
+/// `Paused` → `unpause` → `Running` (cgroup freezer, keep mount).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainerState {
     Missing,
     Pulling,
     Running,
+    Paused,
     Stopped,
     Error(String),
 }
@@ -161,6 +164,71 @@ impl ContainerManager {
         Ok(true)
     }
 
+    /// Current state via `podman inspect` (`--format {{.State.Status}}`):
+    /// `running` → `Running`, `paused` → `Paused`, `paused` is ADR-0007
+    /// sleep; `created`/`exited` → `Stopped`; absent → `Missing`.
+    /// Unknown raw strings surface as `Error` so new podman states don't
+    /// silently pretend to be `Running`.
+    pub fn inspect_state(&self, name: &str) -> anyhow::Result<ContainerState> {
+        let out = Command::new(&self.bin)
+            .args(["inspect", "--format", "{{.State.Status}}", name])
+            .output()
+            .map_err(|e| anyhow::anyhow!("podman spawn failed: {e:#}"))?;
+        if !out.status.success() {
+            // `inspect` exits non-zero when the container doesn't exist
+            // (the `ps`-fallback path below would be racy for this caller).
+            // Treat stderr "no such" as Missing, else bubble the error.
+            let err = String::from_utf8_lossy(&out.stderr);
+            if err.to_lowercase().contains("no such") {
+                return Ok(ContainerState::Missing);
+            }
+            anyhow::bail!("podman inspect failed: {}", {
+                let t = err.trim();
+                if t.is_empty() { "inspect failed" } else { t }
+            });
+        }
+        Ok(match String::from_utf8_lossy(&out.stdout).trim() {
+            "running" => ContainerState::Running,
+            "paused" => ContainerState::Paused,
+            "created" | "exited" | "stopped" => ContainerState::Stopped,
+            other => ContainerState::Error(format!("unknown state {other:?}")),
+        })
+    }
+
+    /// Pause a running container (ADR-0007 sleep). No-op when missing or
+    /// already paused; errors land in `Error` so callers surface them.
+    pub fn pause(&self, name: &str) -> ContainerState {
+        match self.inspect_state(name) {
+            Ok(ContainerState::Missing) => ContainerState::Missing,
+            Ok(ContainerState::Paused) => ContainerState::Paused,
+            Ok(ContainerState::Running) => {
+                match self.run_cli(&["pause".to_string(), name.to_string()]) {
+                    Ok(_) => ContainerState::Paused,
+                    Err(e) => ContainerState::Error(format!("pause failed: {e:#}")),
+                }
+            }
+            Ok(other) => ContainerState::Error(format!("pause: not running (is {other:?})")),
+            Err(e) => ContainerState::Error(format!("pause inspect: {e:#}")),
+        }
+    }
+
+    /// Unpause (wake) a paused container. No-op when already running;
+    /// reports `Missing` when the container doesn't exist.
+    pub fn unpause(&self, name: &str) -> ContainerState {
+        match self.inspect_state(name) {
+            Ok(ContainerState::Missing) => ContainerState::Missing,
+            Ok(ContainerState::Running) => ContainerState::Running,
+            Ok(ContainerState::Paused) => {
+                match self.run_cli(&["unpause".to_string(), name.to_string()]) {
+                    Ok(_) => ContainerState::Running,
+                    Err(e) => ContainerState::Error(format!("unpause failed: {e:#}")),
+                }
+            }
+            Ok(other) => ContainerState::Error(format!("unpause: not paused (is {other:?})")),
+            Err(e) => ContainerState::Error(format!("unpause inspect: {e:#}")),
+        }
+    }
+
     /// Missing → pull → run → `Running`. Existing → `Running` untouched.
     /// Failures land in `Error` for manual retry — never auto-pruned.
     pub fn ensure_running(&self, spec: &ContainerSpec) -> ContainerState {
@@ -173,7 +241,7 @@ impl ContainerManager {
             return ContainerState::Error(format!("pull failed: {e:#}"));
         }
         match self.start(spec) {
-            Ok(()) => ContainerState::Running,
+            Ok(_) => ContainerState::Running,
             Err(e) => ContainerState::Error(format!("run failed: {e:#}")),
         }
     }
@@ -311,5 +379,134 @@ mod tests {
         let here = FakePodman::new(&format!("{}\n", spec.name), "", 0);
         assert!(mgr(&here).stop(&spec.name).unwrap());
         assert!(here.calls().contains("rm -f"), "{}", here.calls());
+    }
+
+    /// ADR-0007: fake `inspect` returns `status` per subcommand type
+    /// (`inspect` field + `ps` fallback), so pause/unpause state machine
+    /// is testable without a real cgroup freezer.
+    #[derive(Debug)]
+    struct InspectPodman {
+        _dir: PathBuf,
+        bin: PathBuf,
+    }
+
+    impl InspectPodman {
+        fn new(state: &str, code: i32) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(100_000);
+            let dir = std::env::temp_dir().join(format!(
+                "dione-inspect-podcli-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("state.txt"), state).unwrap();
+            std::fs::write(dir.join("code.txt"), code.to_string()).unwrap();
+            let bin = dir.join("podman");
+            let script = format!(
+                "#!/bin/sh\necho \"$@\" >> \"{0}/calls.txt\"\nif [ \"$1\" = \"inspect\" ]; then cat \"{0}/state.txt\"; exit \"$(cat \"{0}/code.txt\")\"; fi\ncat \"{0}/state.txt\"\nexit 0\n",
+                dir.display(),
+            );
+            std::fs::write(&bin, script).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            Self { _dir: dir, bin }
+        }
+
+        fn calls(&self) -> String {
+            std::fs::read_to_string(self._dir.join("calls.txt")).unwrap_or_default()
+        }
+    }
+
+    impl Drop for InspectPodman {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self._dir);
+        }
+    }
+
+    #[test]
+    fn pause_needs_running_and_unpause_needs_paused() {
+        let running = InspectPodman::new("running\n", 0);
+        let mgr = ContainerManager::new().with_bin(running.bin.clone());
+        assert_eq!(mgr.pause("n"), ContainerState::Paused);
+        assert!(running.calls().contains("pause"), "{}", running.calls());
+        // Fresh `running` so the second `inspect` still returns running
+        // (the `pause` simulation doesn't flip state.txt → unpause needs
+        // its own fresh fake).
+        let running2 = InspectPodman::new("running\n", 0);
+        let mgr2 = ContainerManager::new().with_bin(running2.bin.clone());
+        // `unpause` no-ops when already running; use a paused one to test it
+        let paused = InspectPodman::new("paused\n", 0);
+        assert_eq!(
+            ContainerManager::new()
+                .with_bin(paused.bin.clone())
+                .unpause("n"),
+            ContainerState::Running
+        );
+        assert!(paused.calls().contains("unpause"), "{}", paused.calls());
+        let _ = running2;
+        let _ = mgr2;
+    }
+
+    #[test]
+    fn pause_paused_is_noop_unpause_running_is_noop() {
+        let paused = InspectPodman::new("paused\n", 0);
+        assert_eq!(
+            ContainerManager::new()
+                .with_bin(paused.bin.clone())
+                .pause("n"),
+            ContainerState::Paused
+        );
+        assert!(!paused.calls().contains("pause"), "{}", paused.calls());
+        let running = InspectPodman::new("running\n", 0);
+        assert_eq!(
+            ContainerManager::new()
+                .with_bin(running.bin.clone())
+                .unpause("n"),
+            ContainerState::Running
+        );
+        assert!(!running.calls().contains("unpause"), "{}", running.calls());
+    }
+
+    #[test]
+    fn missing_and_wrong_state_surface_cleanly() {
+        // `inspect` non-zero + "no such container" → Missing.
+        let miss = InspectPodman::new("", 1);
+        std::fs::write(miss._dir.join("state.txt"), "").unwrap();
+        // Script exits 1 but stdout is empty; we need stderr "no such"
+        // — rebuild with stderr branch for this case only.
+        let bin = miss._dir.join("podman-miss");
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" >> \"{}/calls.txt\"\nif [ \"$1\" = \"inspect\" ]; then echo \"Error: no such container n\" >&2; exit 1; fi\nexit 0\n",
+            miss._dir.display(),
+        );
+        std::fs::write(&bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mgr = ContainerManager::new().with_bin(bin);
+        assert_eq!(mgr.inspect_state("n").unwrap(), ContainerState::Missing);
+        assert_eq!(mgr.pause("n"), ContainerState::Missing);
+        assert_eq!(mgr.unpause("n"), ContainerState::Missing);
+        // Pausing a stopped container is a clean Error, not Missing.
+        let stopped = InspectPodman::new("exited\n", 0);
+        assert!(matches!(
+            ContainerManager::new()
+                .with_bin(stopped.bin.clone())
+                .pause("n"),
+            ContainerState::Error(_)
+        ));
+        assert!(matches!(
+            ContainerManager::new()
+                .with_bin(stopped.bin.clone())
+                .unpause("n"),
+            ContainerState::Error(_)
+        ));
     }
 }

@@ -11,6 +11,7 @@ pub(crate) fn vm_label(state: &ContainerState) -> &'static str {
         ContainerState::Missing => "missing",
         ContainerState::Pulling => "pulling…",
         ContainerState::Running => "running",
+        ContainerState::Paused => "paused",
         ContainerState::Stopped => "stopped",
         ContainerState::Error(_) => "error",
     }
@@ -20,6 +21,7 @@ pub(crate) fn vm_label(state: &ContainerState) -> &'static str {
 pub(crate) fn vm_dot(state: &ContainerState) -> Option<Rgba> {
     match state {
         ContainerState::Running => Some(ok_color()),
+        ContainerState::Paused => Some(warn_color()),
         ContainerState::Error(_) => Some(bad_color()),
         ContainerState::Missing | ContainerState::Stopped => None,
         ContainerState::Pulling => Some(warn_color()),
@@ -85,6 +87,7 @@ mod tests {
         assert_eq!(vm_label(&ContainerState::Missing), "missing");
         assert_eq!(vm_label(&ContainerState::Pulling), "pulling…");
         assert_eq!(vm_label(&ContainerState::Running), "running");
+        assert_eq!(vm_label(&ContainerState::Paused), "paused");
         assert_eq!(vm_label(&ContainerState::Stopped), "stopped");
         assert_eq!(vm_label(&ContainerState::Error("x".into())), "error");
     }
@@ -95,6 +98,7 @@ mod tests {
         assert!(vm_dot(&ContainerState::Stopped).is_none());
         assert!(vm_dot(&ContainerState::Running).is_some());
         assert!(vm_dot(&ContainerState::Pulling).is_some());
+        assert!(vm_dot(&ContainerState::Paused).is_some());
         assert!(vm_dot(&ContainerState::Error("x".into())).is_some());
     }
 }

@@ -202,9 +202,7 @@ impl DioneApp {
             let color = self.worktree_dot(&slug).unwrap_or_else(|| muted_for(dark));
             let select_slug = slug.clone();
             let select = cx.listener(move |this, _: &ClickEvent, _, _| {
-                this.rt.send(Command::SelectWorktree {
-                    slug: select_slug.clone(),
-                });
+                this.select_worktree(select_slug.clone());
             });
             let remove_slug = slug.clone();
             let remove = cx.listener(move |this, _: &ClickEvent, _, _| {

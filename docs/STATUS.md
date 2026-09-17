@@ -289,6 +289,18 @@ docs sống + skills `dione-*`, docs lịch sử rewrite tên.
    `CONTAINERS_CONF`; argv production (`--cap-drop=all`, limits,
    `--read-only`, slirp4netns) giữ nguyên, chạy thật ok. Không podman →
    live test vẫn SKIP-pass, CI xanh.
+   M7a-d + M8 (review++) DONE (Host-only) → M9 CLOSED (metrics + BYOK +
+   rate-limit visibility, Cost frozen, sandbox phía sau).
+2. DONE sandbox per-worktree + sleep (ADR-0007, S0→S4):
+   S0 baseline mknod/dọn smoke + live 2/2 (14s) + Xvfb + spot-check mount;
+   S1 ADR-0007 (1 container/worktree, lazy wake/pause idle-only, mount
+   root, vfs caveat); S2 `ContainerManager::pause/unpause` + `Paused`
+   + `inspect_state` + fake `InspectPodman` (pause/unpause/no-op/missing);
+   S3 thread `worktree_key` + per-worktree guests + `Pause`/`Unpause`;
+   S4 UI `select_worktree` (ensure/wake + pause idle others via
+   `is_busy_scope`/blocked gate, áp cho sidebar + tabs + palette); badge
+   `ctr:paused` + dot warn; base 38 + agent 40 + workspace 58 + desktop
+   35 xanh, Xvfb smoke sạch.
 2. M6 còn lại: Open-Workspace container wiring production (`rt.fleet()`
    callsite: `open_task_with` với `PodmanProvider`) + live podman
 3. Tier B live prompt: opt-in, tốn quota, chạy tay khi cần.

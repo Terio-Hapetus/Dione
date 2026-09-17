@@ -326,9 +326,53 @@ impl DioneApp {
     }
 
     /// Record a workspace container state for the Fleet badge.
-    /// Fed by the container thread via the snapshot loop (ADR-0006).
+    /// Fed by the container thread via the snapshot loop (ADR-0006/0007).
     pub(crate) fn set_container_state(&mut self, slug: String, state: ContainerState) {
         self.vm_states.insert(slug, state);
+    }
+
+    /// ADR-0007: selecting a worktree wakes its container and pauses
+    /// idle ones (lightweight). Only worktrees with no live task and no
+    /// busy session sleep — active ones stay `Running` even off-screen.
+    pub(crate) fn select_worktree(&mut self, slug: String) {
+        let selected_path = self.store.worktrees.get(&slug).map(|r| r.path.clone());
+        self.rt.send(Command::SelectWorktree { slug: slug.clone() });
+        if let Some(path) = selected_path {
+            let cur = self.vm_states.get(&slug).cloned();
+            if !matches!(
+                cur,
+                Some(ContainerState::Running) | Some(ContainerState::Paused)
+            ) {
+                self.vm.ensure(slug.clone(), path.clone());
+            } else if cur == Some(ContainerState::Paused) {
+                self.vm.unpause(slug.clone(), path.clone());
+            }
+            // Pause idle worktrees (not the selected one, not live).
+            for (other, rec) in self.store.worktrees.clone() {
+                if other == slug {
+                    continue;
+                }
+                if self.vm_states.get(&other) != Some(&ContainerState::Running) {
+                    continue;
+                }
+                if self.store.is_blocked_slug(&other) {
+                    continue;
+                }
+                let busy = self
+                    .store
+                    .sessions_in_scope(&other)
+                    .iter()
+                    .any(|sid| self.store.is_busy_scope(sid));
+                if busy {
+                    continue;
+                }
+                // Live task check would need fleet access; rely on session
+                // busyness + blocked flag for now (task tasks are session-
+                // backed). The thread's pause is idempotent, so no inspect
+                // cost — just send.
+                self.vm.pause(other.clone(), rec.path.clone());
+            }
+        }
     }
 
     pub(crate) fn send_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {

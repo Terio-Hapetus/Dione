@@ -121,6 +121,15 @@ impl Store {
             .is_some_and(|s| matches!(s, SessionStatus::Busy | SessionStatus::Retry { .. }))
     }
 
+    /// Scope-wide busy (any session in scope is Working, including `Retry`
+    /// which is backoff-busy). ADR-0007 idle gate uses this so backoff isn't
+    /// paused.
+    pub fn is_busy_scope(&self, scope: &str) -> bool {
+        self.sessions_in_scope(scope)
+            .iter()
+            .any(|sid| self.is_working(sid))
+    }
+
     pub fn has_pending(&self, sid: &str) -> bool {
         self.pending_permissions
             .values()
