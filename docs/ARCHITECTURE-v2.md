@@ -17,7 +17,7 @@
 ┌─ Workspace (1 repo) ──▼──────────────────────────────┐
 │ 1 container / 1 workspace (podman rootless)          │
 │ ├── worktrees trong bind-mount /workspace            │
-│ │    <repo>/.dione-worktrees/<slug> (branch ade/<slug>)│
+│ │    <repo>/.dione-worktrees/<slug> (branch dione/<slug>)│
 │ └── agent CLI bất kỳ (kit script lúc boot)           │
 └──────────────────────────────────────────────────────┘
 ```
@@ -29,13 +29,12 @@
 ## Crates (mục tiêu, 1 chiều, không vòng)
 
 ```
-crates/
-├── base/        # FROZEN M1–M2: Store/Command cũ giữ nguyên (dual-write)
-│   └── + modules mới tạm trú: transcript.rs → agent.rs → workspace.rs → vm.rs
-├── workspace/   # Workspace + Task + WorkspaceProvider { Host, Podman }
-│                    # + ContainerManager (ensure/stop, image pull) — xem ADR-0006
-├── agent/       # AgentBackend { OpencodeAdapter, TerminalAdapter } + kits/*.sh
-└── desktop/          # HostShell + WorktreeView [Chat | Terminal]
+crates/base/        # FROZEN M1–M2: Store/Command cũ giữ nguyên (dual-write)
+                    # + transcript/metrics/runtime-fleet seams (agent←workspace←base)
+crates/workspace/   # Task + WorkspaceProvider { Host, Podman } + memory.rs
+                    # + ContainerManager (ensure/stop/pause, image pull) — ADR-0006/0007
+crates/agent/       # AgentBackend { OpencodeAdapter, TerminalAdapter } + kits/opencode.sh
+apps/desktop/       # binary `dione`: HostShell + WorktreeView [Chat | Terminal]
 ```
 
 Quy tắc chống vỡ legacy:
@@ -58,26 +57,38 @@ struct Cost { input, output, cache, cost: f64 } // legacy, frozen M9a
 // (Claude/Codex JSONL) → AgentEvent::Usage → Supervisor.metrics (stamp
 // agent/model từ Task, Store frozen) → FleetInbox::collect_usage →
 // DioneApp::usage → tab Costs (per-agent/model, 5h tokens, ~ / n/a).
+// M12 memory (orchestrator, suggest-only): RepoMemory cap 50 FIFO +
+// MemoryEntry{ task, slug, agent_ref, kind: Win/Fail/Note, text≤140, ts }
+// pure: distill_entry(&Task, kind, ts) -> Option<MemoryEntry> (dòng đầu
+// summary|slug sanitize, capped đúng 140…); propose_agents_patch(
+// &RepoMemory, take) -> Option<String> (snippet AGENTS.md với sentinels)
+// + merge_into_agents_md (idempotent Apply); recall_context(_capped)(
+// &RepoMemory, take[, max]) -> Option<String> (context block cho child/
+// retry qua driver child_with_memory); MemoryStore per-repo owner;
+// Supervisor::distill helper. Auto-drain khi Blocked → store: backlog.
 
 // agent: ổ cắm thay được, không khóa opencode
 trait AgentBackend: Send {
-    fn spawn(&mut self, ws: &dyn WorkspaceProvider, prompt: &str) -> Result<SessionId>;
-    fn prompt(&mut self, s: &SessionId, text: &str) -> Result<()>;
-    fn abort(&mut self, s: &SessionId) -> Result<()>;
+    fn spawn(&mut self, task: TaskId, prompt: &str) -> Result<()>;
+    fn prompt(&mut self, task: &TaskId, text: &str) -> Result<()>;
+    fn abort(&mut self, task: &TaskId) -> Result<()>;
     fn poll(&mut self) -> Vec<AgentEvent>;
+    fn collect(&mut self, store: &Store) -> Vec<AgentEvent>; // OpencodeAdapter: cursor dedup
+    fn bind_session(&mut self, task: TaskId, session_id: &str);
+    fn unbind_session(&mut self, session_id: &str);
 }
 enum AgentStatus { Idle, Working, NeedsInput{ reason: String }, Done, Error{ msg: String } }
 
 // workspace: Host và container chung 1 mặt
 trait WorkspaceProvider: Send {
     fn exec(&mut self, cmd: &[&str], cwd: &Path) -> Result<ExecOut>;
-    fn shell(&mut self) -> Result<ShellChannel>;
-    fn git_diff(&self) -> Result<GitDiff>; // qua git, không qua /session/diff
+    fn exec_with_env(&mut self, cmd: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Result<ExecOut>;
+    fn shell(&mut self, cwd: &Path) -> Result<Box<dyn ShellChannel>>;
 }
 
-// container: 1 container / 1 workspace (ADR-0006)
-enum ContainerState { Missing, Pulling, Running, Stopped, Error(String) }
-struct ContainerManager { /* ensure_running / stop over the podman CLI */ }
+// container: 1 container / 1 worktree, lazy wake/pause (ADR-0007)
+enum ContainerState { Missing, Pulling, Running, Paused, Stopped, Error(String) }
+struct ContainerManager { /* ensure_running / stop / pause / unpause over the podman CLI */ }
 ```
 
 - `OpencodeAdapter` bọc nguyên `server.rs` + SSE/poll hiện tại.

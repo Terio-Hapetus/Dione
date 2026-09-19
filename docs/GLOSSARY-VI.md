@@ -36,7 +36,7 @@ không `authorized_keys`, không reuse gì cả.
 ## Worktree — bàn làm việc riêng
 
 `git worktree add` checkout 1 branch ra 1 thư mục riêng.
-Dione: `<repo>/.dione-worktrees/<slug>` + branch `ade/<slug>`.
+Dione: `<repo>/.dione-worktrees/<slug>` + branch `dione/<slug>`.
 1 task = 1 worktree = N agent chạy song song không giẫm file nhau.
 
 ## Workspace — cả tầng làm việc
@@ -78,13 +78,26 @@ exec, không ghi file trong container. Agent gọi được API nhưng không đ
 
 ## NetPolicy — nội quy mạng
 
-`Open` (cho hết, p1) / `Balanced` (chặn + allowlist) / `Locked` (chặn hết).
-Code chừa sẵn enum, p1 chạy Open.
+`Open` (cho hết, p1; container chạy `--network slirp4netns`, open egress).
+`Balanced`/`Locked` là ý tưởng tương lai — code chưa có enum nào cả.
 
 ## Dispatcher/kanban — quản đốc
 
 Vòng lặp mỗi 60s: thu hồi task kẹt (stale/crash), giao việc, retry có giới
 hạn (`failure_limit=2 → blocked`). Học Hermes kanban.
+
+## Memory (M12) — sổ tay của quản đốc (orchestrator, không chấm model)
+
+`RepoMemory` per-repo, cap 50 entries FIFO (in-memory; disk để sau). Mỗi
+`MemoryEntry { task, slug, agent_ref, kind: Win/Fail/Note, text≤140, ts }`
+được `distill_entry(&Task, kind, ts)` rút ra thuần túy: chỉ lấy dòng đầu
+`task.summary` (trim) hoặc fallback `slug`, cắt 140… + `…`, không LLM/không
+bịa. `propose_agents_patch(&RepoMemory, take)` render snippet `## Dione
+Memory` + `<!-- dione:memory:* -->` bullets để human duyệt trong File/Diff
+viewer (`suggest-only`, không tự ghi `AGENTS.md`); `recall_context(&RepoMemory,
+take)` trả block `"- [Kind] slug: text"` để nối vào `Task.summary`/composer
+khi mở child/retry. Scorers/benchmarks A/B model đã loại — ADE điều phối
+chứ không test agent.
 
 ## Factory — dây chuyền
 

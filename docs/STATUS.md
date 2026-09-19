@@ -2,6 +2,13 @@
 
 ## Current milestone
 
+M12 DONE (M12a-d pure, suggest-only, orchestrator — không chấm model):
+M12a DONE (`crates/workspace/src/memory.rs` — `RepoMemory` cap 50 FIFO in-memory + `MemoryEntry`; 9 tests) + M12b DONE (`distill_entry` pure: dòng đầu `task.summary` hoặc slug fallback, capped 140… + `…`, không LLM/không bịa)
+→ M12c+d DONE (`propose_agents_patch` + `recall_context` pure, most-recent tail `take`, sentinels `<!-- dione:memory:* -->`, `None` khi rỗng/0; 5 tests mới).
+→ G1–G4 hardening (không đổi spec M12): G1 fleet correctness (T1 Usage bridge qua session-map + U3 bind reset cursor; R2 ordered `drain_outcomes`; B2 release untrack supervisor-id theo scope; S1 heartbeat chống Reclaim giả; R3 handoff đọc bound session; base 40 + agent 48 xanh, 6 tests mới) + G2 secrets/usage (`lookup` trim `\n`, `set` đóng stdin trước wait, `resolve_task_env` trim/dedupe/reject-rỗng, `MetricsLog` cap 2048; workspace 79 xanh) + G3 memory wire (`MemoryStore` per-repo, `recent/kind_for_status/record_distilled`, slug sanitize, cap đúng 140, `merge_into_agents_md` idempotent, `recall_context_capped`, driver `child_with_memory`, `Supervisor::distill`; memory 20 tests) + G4 desktop sync (notify tab/toggle, hunk clear sau Apply, Send guard khi annotate, cleanup RemoveWorktree, live-task gate cho pause, ids theo tên file; desktop 38 xanh).
+Specs đổi hướng: scorers/benchmarks A/B model đã loại — ADE là orchestrator (điều phối), không test agent (user chốt `2026-09-19`); chỉ `suggest-only` cho `AGENTS.md`, không auto-write, không memory routing tự động.
+Backlog M12 còn lại: auto-drain `Blocked` → `MemoryStore` + viewer File/Diff + disk persist.
+
 M4 DONE (seam + wiring + tests; production driver pending → M6).
 M5 lõi DONE (CH-only, live-gated).
 M6 Terminal Host-only DONE (driver + pty + adapter + kit + ssh-shell).
@@ -61,8 +68,8 @@ ETXTBSY-spawn → `retry_busy` chung ở `provider.rs` (podman + containers +
 secret-tool; bounded, errno-26-only) + pty echo-shortcut (test chờ output
 thật: fake `args()` poll file, live test needle số học `6*7=42`); 12/12
 + 8/8 runs sạch sau fix + live 2/2 re-verify.
-Next: M6 container wiring production (`rt.fleet()` callsite) hoặc M10.
-rate-limit. Account switcher để sau M9 (đã chốt metrics trước).
+Next: M10 (Remote/Notify + Account switcher) hoặc auto-drain `Blocked` → `MemoryStore` + viewer File/Diff (M12 backlog) hoặc `usage_probe` hardening (future-ts/zero-sample/iso8601).
+Scorers/benchmarks A/B model đã loại — ADE là orchestrator (điều phối), không chấm agent (user chốt `2026-09-19`).
 Mctr: podman thay MicroVM DONE (ADR-0006, FS-isolation + open egress):
 P1 `PodmanProvider::exec` + probe + mount-map, P2 shell `exec -it` dưới
 pty, P3 `ContainerManager` + `ContainerState` + live gate, P4

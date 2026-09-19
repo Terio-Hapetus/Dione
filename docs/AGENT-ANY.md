@@ -8,12 +8,12 @@
 
 ## Thêm agent mới trong 3 bước
 
-1. Thêm kit script `kits/<ten>.sh` (cài binary lúc container boot, không bake vào image).
+1. Thêm kit script `kits/<ten>.sh` (cài binary lúc container boot, không bake vào image; hiện chỉ có `kits/opencode.sh`, `claude.sh`/`codex.sh` trong `agents.toml.example` vẫn là mẫu comment).
 2. Thêm 1 dòng vào `agents.toml`:
    ```toml
    [agents.<ten>] bin = "<bin>" prompt_arg = "-p"
    ```
-3. Chạy lab `LABS.md#agent-mới` (probe → spawn → prompt → diff hiện).
+3. Chạy lab `LABS.md` Lab 4 (probe → spawn → prompt → diff hiện).
 
 Xong: agent xuất hiện trong Agent picker, chạy được fan-out so với agent khác.
 
@@ -35,7 +35,8 @@ Keys sống ở OS keychain (`secret-tool` → Secret Service, `account = "<agen
 
 ## Per-task override (học Hermes)
 
-`Task { id, slug, agent_ref, model_override, max_runtime }`.
+`Task { id, slug, agent_ref, model_override, max_runtime_secs }`
+(+ `failure_limit/failure_count/status`, `parent/summary` handoff).
 Fan-out 1 prompt → N tasks khác agent → compare diff git → merge winner.
 
 ## Không làm

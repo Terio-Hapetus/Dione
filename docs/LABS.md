@@ -79,16 +79,17 @@ cargo test -p workspace agents && cargo test -p desktop top_bar
 - Thấy binary + entry trong `agents.toml` → Agent picker hiện tick xanh
   (`●`), thiếu binary → tick đỏ (`○`); chưa có file → picker trống.
 - Nửa sau (chạy agent trong container): gõ prompt vào composer, bấm ▶
-  per-row ở Fleet (luôn container: `Ensure`/`Unpause` → `pending_runs` →
-  `Running` → `spawn_agent_in_container` với `PodmanProvider` + BYOK
-  `with_secrets`; agent = first-present CLI). Fan-out `Send all`
-  (1 prompt → N worktrees) là backlog Agent Orchestrator (để roadmap,
-  chưa làm).
+  per-row ở Fleet (`Ensure`/`Unpause` → `pending_runs` → `Running` →
+  `spawn_agent_in_container` với `PodmanProvider` + BYOK `with_secrets`
+  khi agent có `env_keys`; agent = first-present CLI; không podman →
+  Host mode + warn, không crash). Fan-out `Send all` hiện tại là legacy
+  (1 prompt → N opencode sessions đã bind); Container fan-out
+  (1 prompt → N worktrees spawn N tasks) là backlog (để roadmap).
 
 ## Lab 5: fan-out + merge (Host, M2)
 
 1. Tạo 2 worktrees (`+ wt` trong app).
-2. Gửi 1 prompt bằng `⇉ all`.
+2. Gửi 1 prompt bằng `Send all`.
 3. Compare diff (`↻ all`), annotate 1 dòng, gửi về đúng agent.
 4. Merge winner, prune. Worktree dirty phải được giữ lại + báo lỗi rõ.
 
@@ -103,7 +104,7 @@ Mở tab `Costs` (bên phải: context/diff/file → costs) sau khi chạy 1 tas
 bất kỳ (kể cả Host).
 
 ```bash
-cargo test -p base -p agent -p workspace --lib   # 38 + 40 + 58 xanh (có costs)
+cargo test -p base -p agent -p workspace --lib   # 40 + 48 + 79 xanh (có costs)
 ```
 
 - Đúng: tổng tokens hiện, breakdown per-agent / per-model có, 5h tokens
@@ -144,3 +145,16 @@ cargo test -p agent terminal -- --nocapture rate_limit
   chứ không giả `Working`; terminal task latch `NeedsInput` tới `Done` mới hết.
   Composer vẫn khóa khi backoff (đúng, chưa tiến triển).
 - Đỏ: đọc `AGENT-ANY.md` bảng TerminalAdapter.
+
+## Lab 10: memory (M12, không podman cũng chạy được)
+
+`RepoMemory` per-repo in-memory (cap 50 FIFO), hook thuần túy không LLM, và
+suggest-only `AGENTS.md` (human duyệt).
+
+```bash
+cargo test -p workspace memory -- --nocapture
+```
+
+- Đúng: `distill_entry(&Task, kind, ts)` lấy dòng đầu `task.summary` trim (hoặc `slug` fallback, sanitize một dòng), cắt đúng 140… + `…`; `propose_agents_patch(&RepoMemory, take)` render `## Dione Memory` + `<!-- dione:memory:* -->` bullets `- [Win/Fail/Note] slug: text` cho `take` entries mới nhất, `None` khi rỗng/0 và **không bao giờ tự ghi file** (`merge_into_agents_md` idempotent cho nút Apply); `recall_context(_capped)(&RepoMemory, take[, max])` trả block `"- [Kind] slug: text"` để driver `child_with_memory` prefix vào `Task.summary` khi `open_child_task`; `MemoryStore` giữ 1 memory/repo; 20 tests xanh (cap FIFO, fallback, capping, most-recent tail, merge, budget).
+- Trống/take 0 → `None` là đúng; texts đều ≤140 chars đã định sẵn.
+- Đỏ: đọc `ARCHITECTURE-v2.md#core-types` (M12 memory) + `crates/workspace/src/memory.rs`.

@@ -20,19 +20,21 @@
 ## Khi thêm module mới (chống vỡ legacy)
 
 - Viết trait + `Mock` trước, test `Mock` xanh rồi mới viết backend thật.
-- Code mới sống trong `base` (<250 dòng/file) ở M3–M4, tách crate ở M5.
+- Module mới sống ở crate đúng tầng (`base` = wire/types dùng chung,
+  `workspace` = task/container/memory, `agent` = backend/supervisor;
+  file lớn hiện tại: `supervisor 700+`, `app 600+` — tách khi sửa sâu).
 - Không sửa signature cũ: thêm types mới + adapter translate ở biên.
-- Build mặc định `host-only` phải qua được trên máy không KVM.
+- Build mặc định phải qua được trên máy không podman (Host mode + banner).
 
 ## Khi bị kẹt
 
 - Chạy lab gần nhất còn xanh trong `LABS.md`. Lab đỏ ở đâu → đọc spec ở đó.
-- Hỏi 3 câu: (1) UI hay core? (2) Host hay VM? (3) Agent nào? Thu hẹp rồi mới sửa.
+- Hỏi 3 câu: (1) UI hay core? (2) Host hay container? (3) Agent nào? Thu hẹp rồi mới sửa.
 - Slice >300 dòng → tách tiếp (kiểu M1a `1190` vỡ là bài học, đừng lặp lại).
 
 ## Checklist cuối task
 
-- [ ] `cargo test -p base` xanh (26+ tests)
+- [ ] `cargo test -p base` xanh (40+ tests; full `--workspace`: base 40 + agent 48 + workspace 79 + desktop 38)
 - [ ] clippy 0 warnings, `cargo fmt` đã chạy
 - [ ] `STATUS.md` đã update
 - [ ] Lab liên quan trong `LABS.md` còn xanh

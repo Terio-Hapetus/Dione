@@ -23,7 +23,7 @@ One task = one isolated git worktree, N agents in parallel.
 - [x] 1 opencode session per worktree (session ↔ worktree link in Store,
       per-directory clients + SSE pumps) (`90c8a09`)
 - [x] Dashboard: `Needs you / Working / Done` in grouped Fleet sidebar
-- [x] Fan-out: 1 prompt → N worktrees (`⇉ all`); grouped multi-session
+- [x] Fan-out: 1 prompt → N worktrees (`Send all`); grouped multi-session
       diff compare (`↻ all`)
 - [x] Annotate diff lines → send batch back to the right agent
 - [x] Merge winner (`--no-ff`) + prune; keep dirty worktrees for manual
@@ -76,7 +76,7 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [x] `TerminalAdapter` (`portable-pty`) + kit đầu `kits/opencode.sh`
       (pin/verify + fake-guest tests; `Working` heuristic + `mark_done`)
 - [x] Wiring production (W1/W2): nút ▶ per-worktree (always-container: `Ensure`/`Unpause` → `pending_runs` → `Running` → `spawn_agent_in_container` với `PodmanProvider` + BYOK `with_secrets`; prompt từ composer, agent = first-present CLI; `select_worktree` wake/pause đã tách ở M5)
-- [ ] Backlog — Agent Orchestrator (đề xuất sau M10): composer fan-out `Send all` spawn N tasks trong containers song song (1 prompt → N worktrees), so với nút ▶ per-row hiện tại (1 prompt → 1 worktree). Để roadmap, chưa làm.
+- [ ] Backlog — Container fan-out (đề xuất sau M10): 1 prompt → N worktrees spawn N tasks trong containers song song, khác nút `Send all` hiện tại (legacy FanOut: 1 prompt → N opencode sessions đã bind). Nút ▶ per-row hiện tại = 1 prompt → 1 worktree. Để roadmap, chưa làm.
 
 ## M7 — Fleet reliability (học Hermes kanban) ✅ done (Host-only)
 
@@ -114,10 +114,15 @@ UI hết import opencode; diff qua git để mọi agent dùng được.
 - [ ] `factory.yaml` (triggers/agents/gates) + settings sync
 - [ ] Automations cron/webhook; control-room runs
 
-## M12 — Evals / self-improve
+## M12 — Evals / self-improve (orchestrator, không train model) ✅ done (M12a-d pure + G3 wire, suggest-only)
 
-- [ ] Scorers mặc định + custom hook; Benchmarks so 2 configs
-- [ ] Memory per-repo (đề xuất update AGENTS.md). Không guardrails engine.
+- [x] Memory core per-repo (M12a + G3 harden: `RepoMemory` cap 50 FIFO in-memory + `MemoryEntry { task, slug, agent_ref, kind: Win/Fail/Note, text ≤140, ts }` + `MemoryStore` per-repo owner + `recent/record_distilled/kind_for_status` helpers; slug sanitize một dòng, cap đúng 140; `crates/workspace/src/memory.rs`)
+- [x] Distill hook thuần túy (M12b: `distill_entry(&Task, kind, ts) -> Option<MemoryEntry>` — chỉ lấy dòng đầu `task.summary` trim/capped 140… hoặc fallback `slug`, không bịa, không LLM; `Supervisor::distill` helper cho callsite)
+- [x] Đề xuất patch `AGENTS.md` suggest-only (M12c + G3: `propose_agents_patch(&RepoMemory, take) -> Option<String>` — render `take` entries mới nhất thành snippet `## Dione Memory` + `<!-- dione:memory:* -->` bullets, `None` khi rỗng/0, không bao giờ tự ghi file; `merge_into_agents_md` idempotent cho nút Apply; viewer File/Diff wiring để backlog)
+- [x] Recall khi mở worktree con/retry (M12d + G3: `recall_context(_capped)(&RepoMemory, take[, max])` — block `"- [Kind] slug: text"`; driver `child_with_memory/open_child_task_with_memory` prefix recall (cap 500) vào summary kế thừa; `Dispatcher` không đổi)
+- [ ] Backlog — auto-drain khi `Blocked` → `MemoryStore` (cần base↔workspace seam mới: `FleetInbox` không được import workspace; desktop snapshot-loop drain là ứng viên) + viewer File/Diff + disk persist `.dione/memory.jsonl`
+- [ ] Backlog — ops-tuning signals (`failure_limit`/prompt mẫu từ `merged/blocked/tokens`): KHÔNG phải scorers/benchmarks A/B model-vs-model (đã loại — sai vai trò orchestrator, user chốt `2026-09-19`)
+- Ghi chú: Không guardrails engine, không memory routing tự động, không auto-write `AGENTS.md`.
 
 ## M13 — Task integrations
 

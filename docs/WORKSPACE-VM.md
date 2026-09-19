@@ -6,8 +6,9 @@ Sandbox = podman rootless, không MicroVM. Code theo file này.
 
 - `Workspace` = 1 repo + cấu hình + worktrees. ID = canonical path của repo.
 - `WorkspaceProvider` = mặt chung cho Host và Podman (xem ARCHITECTURE-v2).
-- 1 container / 1 workspace. Worktrees nằm trong bind-mount,
-  không phải mỗi worktree 1 container.
+- 1 container / 1 worktree (ADR-0007 đổi từ 1/workspace của ADR-0006;
+  worktree rảnh → `pause`, chọn → wake/unpause). Bind-mount chung repo
+  root `/workspace:rw` (worktrees share `.git`).
 
 ## ContainerSpec
 
@@ -29,10 +30,11 @@ Cấm: `--privileged`, `--pid=host`, `--net=host`, mount ngoài root.
 ## State machine (enum dùng chung cho UI + code)
 
 ```
-Missing → Pulling → Running → Stopped
+Missing → Pulling → Running ⇄ Paused → Stopped
               │         │
               └── fail ─┴──→ Error(banner + giữ worktree retry tay)
 ```
+(`Paused` = ADR-0007 sleep worktree rảnh; `unpause` khi chọn lại.)
 
 Không `WaitingSsh`/`Mounting` — không guest SSH, không virtiofs.
 UI Fleet hiển thị badge state.
