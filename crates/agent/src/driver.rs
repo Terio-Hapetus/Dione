@@ -13,7 +13,7 @@ use std::path::Path;
 
 use base::runtime::FleetInbox;
 use base::transcript::TaskId;
-use workspace::{HostProvider, Task, WorkspaceProvider};
+use workspace::{HostProvider, RepoMemory, Task, WorkspaceProvider, recall_context_capped};
 
 use super::agent::{AgentBackend, MockAgent, OpencodeAdapter};
 use super::supervisor::Supervisor;
@@ -63,7 +63,55 @@ pub fn open_child_task(
     cwd: &Path,
     ws: Box<dyn WorkspaceProvider>,
 ) -> anyhow::Result<TaskId> {
-    open_registered_task(inbox, parent.child(slug, agent_ref), prompt, cwd, ws)
+    open_child_task_with_memory(inbox, parent, slug, agent_ref, prompt, cwd, ws, None)
+}
+
+/// Open a continuation task with repo memory (M12d recall): the child's
+/// inherited summary is prefixed with the most-recent memory block
+/// (capped to 500 chars, like `handoff_summary`), so the new agent sees
+/// repo learnings first, then the parent's context. `memory` is
+/// `(memory, take)`; `None` behaves exactly like [`open_child_task`].
+/// Pure child builder with memory (M12d): `parent.child()` plus an
+/// optional recall prefix on the inherited summary. Separated for tests;
+/// [`open_child_task_with_memory`] registers the result.
+pub fn child_with_memory(
+    parent: &Task,
+    slug: &str,
+    agent_ref: &str,
+    memory: Option<(&RepoMemory, usize)>,
+) -> Task {
+    let mut child = parent.child(slug, agent_ref);
+    if let Some((mem, take)) = memory
+        && let Some(recall) = recall_context_capped(mem, take, 500)
+    {
+        child.summary = Some(match child.summary.take() {
+            Some(s) => format!("{recall}\n\n{s}"),
+            None => recall,
+        });
+    }
+    child
+}
+
+/// Eight args mirror `open_task_with` + parent + memory; packed form
+/// would churn every callsite for one optional.
+#[allow(clippy::too_many_arguments)]
+pub fn open_child_task_with_memory(
+    inbox: &FleetInbox,
+    parent: &Task,
+    slug: &str,
+    agent_ref: &str,
+    prompt: &str,
+    cwd: &Path,
+    ws: Box<dyn WorkspaceProvider>,
+    memory: Option<(&RepoMemory, usize)>,
+) -> anyhow::Result<TaskId> {
+    open_registered_task(
+        inbox,
+        child_with_memory(parent, slug, agent_ref, memory),
+        prompt,
+        cwd,
+        ws,
+    )
 }
 
 fn open_registered_task(
@@ -131,6 +179,69 @@ mod tests {
         let inbox = FleetInbox::new();
         assert!(open_host_task(&inbox, "wt-a", "claude", "hi").is_err());
         assert_eq!(inbox.task_count(), 0);
+    }
+
+    #[test]
+    fn child_with_memory_prefixes_recall() {
+        use workspace::{MemoryKind, RepoMemory, distill_entry};
+
+        let parent = Task::new("wt-p", "mock").with_summary("did X, stuck on Y");
+        let mut mem = RepoMemory::new();
+        let t = Task::new("old", "mock").with_summary("always run cargo fmt first");
+        mem.record(distill_entry(&t, MemoryKind::Note, 1).unwrap());
+        // Recall prefixes the inherited summary.
+        let kid = child_with_memory(&parent, "wt-c", "mock", Some((&mem, 3)));
+        let summary = kid.summary.unwrap();
+        assert!(summary.contains("always run cargo fmt first"));
+        assert!(summary.contains("did X, stuck on Y"));
+        assert!(summary.find("cargo fmt").unwrap() < summary.find("did X").unwrap());
+        assert_eq!(kid.parent, Some(parent.id));
+        // Empty memory / None: plain inheritance.
+        let plain = child_with_memory(&parent, "wt-c", "mock", None);
+        assert_eq!(plain.summary.as_deref(), Some("did X, stuck on Y"));
+        let empty = RepoMemory::new();
+        let no_recall = child_with_memory(&parent, "wt-c", "mock", Some((&empty, 3)));
+        assert_eq!(no_recall.summary.as_deref(), Some("did X, stuck on Y"));
+        // Registration still flows the prompt under the child id.
+        let inbox = FleetInbox::new();
+        let ws: Box<dyn WorkspaceProvider> = Box::new(MockWorkspace::new());
+        let cid = open_child_task_with_memory(
+            &inbox,
+            &parent,
+            "wt-c",
+            "mock",
+            "continue",
+            Path::new("/tmp"),
+            ws,
+            Some((&mem, 3)),
+        )
+        .unwrap();
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        let msgs = store.transcripts.get(&cid).cloned().unwrap_or_default();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].text, "continue");
+    }
+
+    #[test]
+    fn child_without_memory_matches_plain() {
+        let inbox = FleetInbox::new();
+        let parent = Task::new("wt-p2", "mock").with_summary("s");
+        let ws: Box<dyn WorkspaceProvider> = Box::new(MockWorkspace::new());
+        let cid = open_child_task_with_memory(
+            &inbox,
+            &parent,
+            "wt-c2",
+            "mock",
+            "go",
+            Path::new("/tmp"),
+            ws,
+            None,
+        )
+        .unwrap();
+        let mut store = Store::default();
+        inbox.poll_fleet(&mut store, 1);
+        assert_eq!(store.transcripts.get(&cid).unwrap().len(), 1);
     }
 
     #[test]

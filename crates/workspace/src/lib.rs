@@ -8,6 +8,7 @@ pub mod agents;
 pub mod containers;
 pub mod dispatcher;
 pub mod host;
+pub mod memory;
 pub mod podman;
 pub mod provider;
 pub mod secrets;
@@ -21,6 +22,11 @@ pub use containers::{
 };
 pub use dispatcher::{DISPATCH_INTERVAL_SECS, Dispatcher, DispatcherAction};
 pub use host::{HostProvider, HostShell};
+pub use memory::{
+    MEMORY_CAP, MEMORY_END, MEMORY_START, MEMORY_TEXT_CAP, MemoryEntry, MemoryKind, MemoryStore,
+    RepoMemory, distill_entry, kind_for_status, merge_into_agents_md, propose_agents_patch,
+    recall_context, recall_context_capped,
+};
 pub use podman::{CTR_WORKSPACE, ContainerMount, PodmanProvider, probe_podman};
 pub use provider::{ExecOut, MockWorkspace, ShellChannel, WorkspaceProvider, strip_ansi};
 pub use secrets::{

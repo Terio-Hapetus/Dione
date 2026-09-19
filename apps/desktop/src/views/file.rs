@@ -21,6 +21,8 @@ pub(crate) const MAX_FILE_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_FILE_LINES: usize = 2000;
 
 /// An opened file: checkout-relative path plus capped content.
+/// `error` marks viewer messages (outside-checkout, missing, binary):
+/// they render as a warning, never as numbered lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpenFile {
     pub scope: String,
@@ -29,6 +31,7 @@ pub(crate) struct OpenFile {
     pub truncated: bool,
     /// Extension tag (`rs`, `toml`, …) for future highlight grammars.
     pub lang: String,
+    pub error: bool,
 }
 
 /// Language tag from a relative path (pure: unit-tested).
@@ -50,13 +53,15 @@ pub(crate) fn lang_of(relpath: &str) -> &'static str {
 
 /// Checkout directory for a diff scope (pure over the store): worktree
 /// scopes use their recorded path; the main scope (`""`) derives the
-/// repo root from any known worktree, else refuses.
+/// repo root from the active worktree first (same-repo guess), else any
+/// known worktree, else refuses.
 pub(crate) fn checkout_for(store: &Store, scope: &str) -> Option<PathBuf> {
     if scope.is_empty() {
         store
-            .worktrees
-            .values()
-            .next()
+            .active_worktree
+            .as_deref()
+            .and_then(|s| store.worktrees.get(s))
+            .or_else(|| store.worktrees.values().next())
             .map(|r| workspace_root(&r.path))
     } else {
         store.worktrees.get(scope).map(|r| r.path.clone())
@@ -88,6 +93,7 @@ pub(crate) fn open_path(store: &Store, scope: &str, relpath: &str) -> OpenFile {
         content: msg,
         truncated: false,
         lang: "text".into(),
+        error: true,
     };
     // Stay inside the checkout: reject absolute paths and `..`.
     let rel = Path::new(relpath);
@@ -116,6 +122,7 @@ pub(crate) fn open_path(store: &Store, scope: &str, relpath: &str) -> OpenFile {
                 content,
                 truncated,
                 lang: lang_of(relpath).to_string(),
+                error: false,
             }
         }
         Err(msg) => err_file(msg),
@@ -132,6 +139,27 @@ impl DioneApp {
             app.open_file = None;
             cx.notify();
         });
+        // Viewer messages (guard failures, binary, missing) render as a
+        // warning — never as numbered lines pretending to be content.
+        if f.error {
+            return div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(
+                    Label::new(format!("⚠ {}", truncate(&f.content, 240)))
+                        .text_size(px(11.))
+                        .text_color(warn_color()),
+                )
+                .child(
+                    Button::new("file-close")
+                        .label("×")
+                        .xsmall()
+                        .compact()
+                        .on_click(close),
+                )
+                .into_any_element();
+        }
         let mut col = div()
             .flex()
             .flex_col()
@@ -217,6 +245,38 @@ mod tests {
         assert_eq!(checkout_for(&store, "wt-a"), Some(wt_path));
         // Main scope derives the repo root from any known worktree.
         assert_eq!(checkout_for(&store, ""), Some(repo.to_path_buf()));
+    }
+
+    #[test]
+    fn checkout_prefers_active_worktree_repo() {
+        let mut store = Store::default();
+        let repo_a = std::path::Path::new("/repo-a");
+        let repo_b = std::path::Path::new("/repo-b");
+        store.upsert_worktree(WorktreeRecord::new(repo_a, "wt-a").unwrap());
+        store.upsert_worktree(WorktreeRecord::new(repo_b, "wt-b").unwrap());
+        // First inserted is active → repo-a…
+        assert_eq!(checkout_for(&store, ""), Some(repo_a.to_path_buf()));
+        // …until the user selects the other worktree.
+        assert!(store.set_active("wt-b"));
+        assert_eq!(checkout_for(&store, ""), Some(repo_b.to_path_buf()));
+    }
+
+    #[test]
+    fn open_errors_flag_for_warn_render() {
+        let store = Store::default();
+        let f = open_path(&store, "", "../evil.txt");
+        assert!(f.error);
+        let dir = std::env::temp_dir().join(format!("dione-file-err-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ok.txt"), "hi\n").unwrap();
+        let mut store2 = Store::default();
+        store2.upsert_worktree(WorktreeRecord::new(&dir, "wt-a").unwrap());
+        // Worktree checkout = dir/.dione-worktrees/wt-a (missing on disk
+        // in this test) → missing-file message still flagged as error.
+        let g = open_path(&store2, "wt-a", "nope.txt");
+        assert!(g.error);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

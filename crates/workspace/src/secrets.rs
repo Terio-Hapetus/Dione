@@ -95,7 +95,12 @@ impl CliSecrets {
         })
         .map_err(|e| anyhow::anyhow!("secret-tool spawn failed: {e:#}"))?;
         if out.status.success() {
-            return Ok(Some(String::from_utf8_lossy(&out.stdout).into_owned()));
+            // `secret-tool` prints the secret plus a trailing newline;
+            // strip only line endings (never inner content) so `-e K=V`
+            // and host env never carry a bogus `\n` into auth.
+            let s = String::from_utf8_lossy(&out.stdout);
+            let s = s.trim_end_matches(['\n', '\r']).to_string();
+            return Ok(Some(s));
         }
         // Exit 1 = no such item (libsecret convention); anything else
         // (locked collection, no D-Bus) is also "absent here", surfaced
@@ -133,11 +138,19 @@ impl Secrets for CliSecrets {
                 .spawn()
         })
         .map_err(|e| anyhow::anyhow!("secret-tool spawn failed: {e:#}"))?;
-        child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("secret-tool stdin unavailable"))?
-            .write_all(secret.as_bytes())?;
+        // Take stdin so it closes (EOF) before we wait: otherwise the
+        // child can block forever on a pipe that never closes. On a
+        // missing pipe, kill + reap first so no zombie leaks.
+        let mut stdin = match child.stdin.take() {
+            Some(s) => s,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!("secret-tool stdin unavailable");
+            }
+        };
+        stdin.write_all(secret.as_bytes())?;
+        drop(stdin);
         let out = child.wait_with_output()?;
         anyhow::ensure!(
             out.status.success(),
@@ -182,10 +195,22 @@ pub fn resolve_task_env(
     let Some(entry) = reg.get(agent_ref) else {
         return out;
     };
-    for key in &entry.env_keys {
-        match secrets.get(&secret_account(agent_ref, key)) {
-            Ok(Some(v)) => out.vars.push((key.clone(), v)),
-            _ => out.missing.push(key.clone()),
+    // Dedupe + trim: `["K", "K", " K "]` resolves once as `K`.
+    let mut seen: Vec<String> = Vec::new();
+    for raw in &entry.env_keys {
+        let key = raw.trim().to_string();
+        if key.is_empty() || seen.contains(&key) {
+            continue;
+        }
+        seen.push(key.clone());
+        match secrets.get(&secret_account(agent_ref, &key)) {
+            // Never forward empty strings: an empty key would silently
+            // mis-authenticate the agent. Trimmed-empty counts as missing.
+            Ok(Some(v)) if !v.trim().is_empty() => {
+                out.vars
+                    .push((key, v.trim_end_matches(['\n', '\r']).to_string()));
+            }
+            _ => out.missing.push(key),
         }
     }
     out
@@ -267,7 +292,8 @@ mod tests {
     fn cli_lookup_found_and_missing() {
         let fake = FakeSecretTool::new("s3cr3t\n", true);
         let cli = CliSecrets::new().with_bin(fake.bin.clone());
-        assert_eq!(cli.get("claude/K").unwrap(), Some("s3cr3t\n".into()));
+        // Trailing newline from the CLI is stripped (was `s3cr3t\n`).
+        assert_eq!(cli.get("claude/K").unwrap(), Some("s3cr3t".into()));
         assert!(
             fake.args()
                 .contains("lookup service dione account claude/K")
@@ -310,5 +336,26 @@ mod tests {
     #[test]
     fn probe_never_panics() {
         let _ = probe_secret_tool();
+    }
+
+    #[test]
+    fn resolve_rejects_empties_and_dedupes() {
+        use super::super::agents::AgentEntry;
+
+        let mut reg = BTreeMap::new();
+        let mut entry = AgentEntry::new("claude", "-p");
+        entry.env_keys = vec!["A".into(), "A".into(), " K ".into(), "".into(), "E".into()];
+        reg.insert("claude".into(), entry);
+        let secrets = MockSecrets::new()
+            .with("claude/A", "1")
+            .with("claude/K", "v\n")
+            .with("claude/E", "   ");
+        let got = resolve_task_env(&reg, &secrets, "claude");
+        // `A` once, `K` trimmed of newline, `E` (whitespace-only) missing.
+        assert_eq!(
+            got.vars,
+            vec![("A".into(), "1".into()), ("K".into(), "v".into())]
+        );
+        assert_eq!(got.missing, vec!["E".to_string()]);
     }
 }

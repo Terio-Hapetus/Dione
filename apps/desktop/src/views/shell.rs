@@ -23,7 +23,7 @@ impl DioneApp {
     ) -> impl IntoElement {
         let client = matches!(window.window_decorations(), Decorations::Client { .. });
         div().children(
-            client.then(|| TitleBar::new().child(Label::new("ADE — Agentic IDE".to_string()))),
+            client.then(|| TitleBar::new().child(Label::new("Dione — Agentic IDE".to_string()))),
         )
     }
     /// 48px icon rail: Fleet / Review / Terminal.
@@ -37,8 +37,9 @@ impl DioneApp {
             app.right_tab = RightTab::Diff;
             cx.notify();
         });
-        let to_term = cx.listener(|app, _: &ClickEvent, _, _| {
+        let to_term = cx.listener(|app, _: &ClickEvent, _, cx| {
             app.toggle_terminal();
+            cx.notify();
         });
         let fleet_active = !self.show_terminal && self.right_tab != RightTab::Diff;
         let review_active = !self.show_terminal && self.right_tab == RightTab::Diff;
@@ -83,7 +84,7 @@ impl DioneApp {
     pub(crate) fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let dark = cx.theme().is_dark();
         let mode = if self.vm_available {
-            "host"
+            "podman"
         } else {
             "host-only"
         };

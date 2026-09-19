@@ -11,7 +11,8 @@ use super::provider::{ExecOut, ShellChannel, WorkspaceProvider, retry_busy};
 pub const CTR_WORKSPACE: &str = "/workspace";
 
 /// How a host cwd maps into the container: `host_root` prefix becomes
-/// `ctr_dir`. One container per workspace (ADR-0002, engine swapped).
+/// `ctr_dir`. One container per worktree (ADR-0007; ADR-0002 said per
+/// workspace, engine swapped since).
 #[derive(Debug, Clone)]
 pub struct ContainerMount {
     pub host_root: PathBuf,

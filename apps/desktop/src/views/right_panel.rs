@@ -15,8 +15,9 @@ impl DioneApp {
         ];
         let mut header = div().flex().gap_1().px_2().py_1();
         for (t, name) in tabs {
-            let set = cx.listener(move |app, _: &ClickEvent, _, _| {
+            let set = cx.listener(move |app, _: &ClickEvent, _, cx| {
                 app.right_tab = t;
+                cx.notify();
             });
             let active = self.right_tab == t;
             let label: SharedString = if active {

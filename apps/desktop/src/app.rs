@@ -468,6 +468,12 @@ impl DioneApp {
             tracing::warn!("run {slug}: task already open");
             return;
         }
+        // The composer text becomes the agent prompt: drop any pending
+        // annotate/reply targeting so note text can never mis-fire as a
+        // run prompt.
+        self.annotate_target = None;
+        self.annotate_anchor = None;
+        self.reply_target = None;
         let state = self.vm_states.get(&slug).cloned();
         match state {
             Some(ContainerState::Running) => {
@@ -516,6 +522,12 @@ impl DioneApp {
                 if self.store.is_blocked_slug(&other) {
                     continue;
                 }
+                // Live terminal-agent task (session-less): never pause
+                // mid-run. `FleetInbox::has_slug` is the same 1:1 gate
+                // the driver uses before opening a task.
+                if self.rt.fleet().has_slug(&other) {
+                    continue;
+                }
                 let busy = self
                     .store
                     .sessions_in_scope(&other)
@@ -547,7 +559,9 @@ impl DioneApp {
 
     pub(crate) fn send_fan_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).value().to_string();
-        if text.trim().is_empty() {
+        // Same busy gate as `send_prompt`: fan-out while the active
+        // session is busy would interleave prompts mid-stream.
+        if text.trim().is_empty() || self.store.is_busy() {
             return;
         }
         self.rt.send(Command::FanOut { text });

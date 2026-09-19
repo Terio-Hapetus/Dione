@@ -3,6 +3,7 @@ use gpui::*;
 use gpui_component::{
     ActiveTheme as _, Icon, IconName, Sizable as _, button::Button, input::Input, label::Label,
 };
+use workspace::ContainerState;
 
 use super::theme::{
     ROW_H, SIDEBAR_W, TEXT_META, TEXT_SECONDARY, active_bg, bad_color, empty_state, muted_for,
@@ -82,10 +83,30 @@ impl DioneApp {
         } else {
             Hsla::transparent_black()
         };
+        let warm_id = id.to_string();
         let select = cx.listener(move |this, _: &ClickEvent, _, _| {
             this.rt.send(Command::SelectSession {
                 id: select_id.clone(),
             });
+            // Warm the owning container (session clicks bypass
+            // `select_worktree`, which otherwise wakes/pauses guests).
+            let scope = this.store.scope_of(&warm_id).to_string();
+            if scope.is_empty() {
+                return;
+            }
+            let path = this.store.worktrees.get(&scope).map(|r| r.path.clone());
+            let Some(path) = path else { return };
+            match this.vm_states.get(&scope).cloned() {
+                Some(ContainerState::Running) => {}
+                Some(ContainerState::Paused) => {
+                    this.vm.unpause(scope.clone(), path);
+                }
+                _ => {
+                    if this.vm_available {
+                        this.vm.ensure(scope.clone(), path);
+                    }
+                }
+            }
         });
         div()
             .id(row_id)
@@ -134,8 +155,10 @@ impl DioneApp {
             let create = cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.create_worktree_from_dialog(window, cx);
             });
-            let cancel = cx.listener(|this, _: &ClickEvent, _, cx| {
+            let cancel = cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.show_wt_dialog = false;
+                this.fleet_input
+                    .update(cx, |st, cx| st.set_value("", window, cx));
                 cx.notify();
             });
             list = list.child(
@@ -205,13 +228,29 @@ impl DioneApp {
                 this.select_worktree(select_slug.clone());
             });
             let remove_slug = slug.clone();
-            let remove = cx.listener(move |this, _: &ClickEvent, _, _| {
+            let remove = cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if let Some(record) = this.store.worktrees.get(&remove_slug) {
                     this.vm.stop(remove_slug.clone(), record.path.clone());
                 }
                 this.rt.send(Command::RemoveWorktree {
                     slug: remove_slug.clone(),
                 });
+                // Drop UI-local state for the removed scope so badges,
+                // pending runs, viewer content, and picks never go stale.
+                this.vm_states.remove(&remove_slug);
+                this.pending_runs.remove(&remove_slug);
+                if this
+                    .open_file
+                    .as_ref()
+                    .is_some_and(|f| f.scope == remove_slug)
+                {
+                    this.open_file = None;
+                }
+                this.diff_notes
+                    .retain(|n| this.store.scope_of(&n.session_id) != remove_slug);
+                this.hunk_picks
+                    .retain(|(sid, _, _)| this.store.scope_of(sid) != remove_slug);
+                cx.notify();
             });
             let open_slug = slug.clone();
             let open = cx.listener(move |this, _: &ClickEvent, _, _| {

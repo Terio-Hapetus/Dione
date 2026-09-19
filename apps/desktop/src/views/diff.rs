@@ -28,6 +28,13 @@ impl FileDiffRow {
     }
 }
 
+/// GPUI-id-safe file key: content-addressed by name (slashes flattened),
+/// never positional — diff refresh reorder must not recycle an id onto
+/// different content.
+pub(crate) fn file_key(name: &str) -> String {
+    name.replace('/', "|")
+}
+
 /// Rows for one diff value (pure: unit-tested). Legacy wire shape is a
 /// `FileDiffRow` array; git-shape (`GitDiff::to_json`) carries a combined
 /// `raw` patch — split per file so annotate + cherry-pick + viewer act
@@ -65,7 +72,7 @@ impl DioneApp {
     pub(crate) fn file_diff_block(
         &self,
         sid: &str,
-        file_idx: usize,
+        _file_idx: usize,
         d: &FileDiffRow,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -79,6 +86,7 @@ impl DioneApp {
         // Single-file blocks open in the viewer tab (M8e). Multi-file
         // git blocks (`"a.rs, b.rs"`) stay static — open files one by one.
         let openable = name != "(unknown)" && name != "(working tree)" && !name.contains(", ");
+        let fkey = file_key(&name);
         let mut block = div().flex().flex_col().gap_0p5().child({
             let label = Label::new(title);
             if openable {
@@ -93,7 +101,7 @@ impl DioneApp {
                     cx.notify();
                 });
                 div()
-                    .id(SharedString::from(format!("file-open-{sid}-{file_idx}")))
+                    .id(SharedString::from(format!("file-open-{sid}-{fkey}")))
                     .cursor_pointer()
                     .on_click(open)
                     .child(label)
@@ -109,7 +117,7 @@ impl DioneApp {
             let mut hunk_idx: Option<usize> = None;
             let parsed = parse_patch_lines(&patch);
             let total = parsed.len();
-            for (li, pl) in parsed.iter().take(400).enumerate() {
+            for pl in parsed.iter().take(400) {
                 let color = if pl.text.starts_with('+') && !pl.text.starts_with("+++") {
                     ok_color()
                 } else if pl.text.starts_with('-') && !pl.text.starts_with("---") {
@@ -152,13 +160,11 @@ impl DioneApp {
                             .items_center()
                             .gap_1()
                             .child(
-                                Button::new(SharedString::from(format!(
-                                    "hunk-{sid}-{file_idx}-{hi}"
-                                )))
-                                .label(if picked { "☑" } else { "☐" })
-                                .xsmall()
-                                .compact()
-                                .on_click(toggle),
+                                Button::new(SharedString::from(format!("hunk-{sid}-{fkey}-{hi}")))
+                                    .label(if picked { "☑" } else { "☐" })
+                                    .xsmall()
+                                    .compact()
+                                    .on_click(toggle),
                             )
                             .child(Label::new(pl.text.clone()).text_color(color)),
                     );
@@ -181,8 +187,11 @@ impl DioneApp {
                             });
                             cx.notify();
                         });
+                        // Key by content (file + new-file line), not by
+                        // positional row index — refresh reorder must not
+                        // recycle an id onto a different line.
                         lines = lines.child(
-                            row.id(SharedString::from(format!("dl-{sid}-{file_idx}-{li}")))
+                            row.id(SharedString::from(format!("dl-{sid}-{fkey}-{n}")))
                                 .cursor_pointer()
                                 .on_click(set),
                         );
@@ -215,6 +224,7 @@ impl DioneApp {
                 let n = picked.len();
                 let apply_file = name.clone();
                 let apply_patch = patch.clone();
+                let apply_sid = sid.to_string();
                 let apply = cx.listener(move |app, _: &ClickEvent, _, cx| {
                     let all = split_hunks(&apply_patch);
                     let hunks = picked
@@ -229,11 +239,15 @@ impl DioneApp {
                             file: apply_file.clone(),
                             hunks,
                         });
+                        // Sent picks clear so a second click cannot
+                        // re-apply the same hunks (M8a "clear on send").
+                        app.hunk_picks
+                            .retain(|(s, f, _)| !(s == &apply_sid && f == &apply_file));
                     }
                     cx.notify();
                 });
                 block = block.child(
-                    Button::new(SharedString::from(format!("hunks-apply-{sid}-{file_idx}")))
+                    Button::new(SharedString::from(format!("hunks-apply-{sid}-{fkey}")))
                         .label(format!("Apply {n} hunk(s) → main"))
                         .xsmall()
                         .compact()
@@ -440,6 +454,8 @@ impl DioneApp {
                 } else {
                     format!("session {short} · {} note(s)", notes.len())
                 };
+                // Full sid in element ids (short prefixes can collide).
+                let sid_full = sid.clone();
                 let mut head = div().flex().items_center().justify_between().child(
                     Label::new(session_label)
                         .text_size(px(11.))
@@ -461,7 +477,7 @@ impl DioneApp {
                         });
                     });
                     head = head.child(
-                        Button::new(SharedString::from(format!("notes-send-{short}")))
+                        Button::new(SharedString::from(format!("notes-send-{sid_full}")))
                             .label(format!("Send {} notes → agent", notes.len()))
                             .xsmall()
                             .compact()
@@ -550,5 +566,14 @@ mod tests {
         assert!(file_rows(&json!([])).is_empty());
         assert!(file_rows(&json!({"source": "git", "files": [], "raw": "  \n"})).is_empty());
         assert!(file_rows(&json!({"nope": 1})).is_empty());
+    }
+
+    #[test]
+    fn file_keys_flatten_slashes() {
+        use crate::views::diff::file_key;
+
+        assert_eq!(file_key("a.rs"), "a.rs");
+        assert_eq!(file_key("src/main.rs"), "src|main.rs");
+        assert_eq!(file_key("(working tree)"), "(working tree)");
     }
 }

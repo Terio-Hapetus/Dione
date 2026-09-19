@@ -144,6 +144,11 @@ impl OpencodeAdapter {
 
     pub fn bind(&mut self, task: TaskId, session_id: &str) {
         self.sessions.insert(task, session_id.to_string());
+        // Fresh binding: drop stale cursor/cost edge-memory so the first
+        // poll after a (re)bind never skips the new session's head
+        // messages nor swallows its first `Usage` (U3).
+        self.cursors.remove(&task);
+        self.last_cost.remove(&task);
     }
     pub fn unbind(&mut self, task: &TaskId) {
         self.sessions.remove(task);
@@ -191,7 +196,16 @@ impl OpencodeAdapter {
                 out.push(AgentEvent::Message(m.clone()));
             }
             self.cursors.insert(task, fresh.len());
-            if let Some(cost) = store.costs.get(&task)
+            // T1: task totals are keyed by the session's own task id
+            // (`Store::mirror_entry` via `task_for_session`), not by the
+            // supervisor's id. Look the cost up through the session map;
+            // the emitted `Usage` keeps the supervisor task id so the
+            // `Supervisor` stamps agent/model onto the right owner.
+            // Missing mapping (retired/unknown session) skips the bridge
+            // instead of emitting a fake zero-cost sample.
+            let sid_task = store.session_task.get(&sid).copied();
+            if let Some(st) = sid_task
+                && let Some(cost) = store.costs.get(&st)
                 && self.last_cost.get(&task) != Some(cost)
             {
                 self.last_cost.insert(task, *cost);
@@ -407,6 +421,109 @@ mod tests {
         ad.bind(task, "s1");
         let fifth = ad.collect_new(&store);
         assert_eq!(usage_events(&fifth).len(), 1);
+    }
+
+    #[test]
+    fn bridge_uses_session_cost_for_supervisor_task() {
+        // T1: totals are keyed by the session mirror id, but the bridge
+        // must still fire for a supervisor bound under its own id.
+        let mut store = Store::default();
+        let sid_task = store.task_for_session("s1");
+        let sup_id = TaskId::new();
+        assert_ne!(sup_id, sid_task);
+        store.costs.insert(
+            sid_task,
+            Cost {
+                input: 5.0,
+                output: 1.0,
+                cache: 0.0,
+                cost: 0.1,
+            },
+        );
+        let mut ad = OpencodeAdapter::new();
+        ad.bind(sup_id, "s1");
+        let usages = usage_events(&ad.collect_new(&store));
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].task, sup_id);
+        assert_eq!(usages[0].cost, Some(0.1));
+    }
+
+    #[test]
+    fn bridge_skips_sessions_without_mirror_mapping() {
+        // Retired/unknown sessions: no fake zero-cost sample.
+        let store = Store::default();
+        let mut ad = OpencodeAdapter::new();
+        ad.bind(TaskId::new(), "ghost");
+        assert!(usage_events(&ad.collect_new(&store)).is_empty());
+    }
+
+    #[test]
+    fn rebind_resets_cursor_and_cost_edge() {
+        // U3: rebinding the same task to a new session must not skip the
+        // new session's head nor swallow its first Usage.
+        let mut store = Store::default();
+        let t1 = store.task_for_session("s1");
+        store.push_unified(UnifiedMessage {
+            id: "m1".into(),
+            task: t1,
+            role: Role::User,
+            text: "one".into(),
+            tool: None,
+            ts: 0,
+        });
+        store.costs.insert(
+            t1,
+            Cost {
+                input: 1.0,
+                output: 0.0,
+                cache: 0.0,
+                cost: 0.1,
+            },
+        );
+        let sup = TaskId::new();
+        let mut ad = OpencodeAdapter::new();
+        ad.bind(sup, "s1");
+        let first = ad.collect_new(&store);
+        assert_eq!(
+            first
+                .iter()
+                .filter(|e| matches!(e, AgentEvent::Message(_)))
+                .count(),
+            1
+        );
+        assert_eq!(usage_events(&first).len(), 1);
+        // New session with its own head message + cost.
+        let t2 = store.task_for_session("s2");
+        store.push_unified(UnifiedMessage {
+            id: "m2".into(),
+            task: t2,
+            role: Role::User,
+            text: "two".into(),
+            tool: None,
+            ts: 0,
+        });
+        store.costs.insert(
+            t2,
+            Cost {
+                input: 2.0,
+                output: 0.0,
+                cache: 0.0,
+                cost: 0.2,
+            },
+        );
+        ad.bind(sup, "s2");
+        let second = ad.collect_new(&store);
+        let msgs: Vec<_> = second
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Message(m) => Some(m.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(msgs, vec!["two"]);
+        let usages = usage_events(&second);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].cost, Some(0.2));
     }
 
     #[test]

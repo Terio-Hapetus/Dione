@@ -1,10 +1,10 @@
 //! P3 containers: lifecycle over the podman CLI (ADR-0006).
 //!
-//! One container per workspace (ADR-0002, engine swapped): the manager
-//! ensures a long-lived `sleep infinity` container with the workspace
-//! bind-mounted at [`crate::podman::CTR_WORKSPACE`]. Agents then run via
-//! `PodmanProvider` (`exec`/`shell`). Only communication is CLI argv —
-//! no SSH, no vsock, no key material.
+//! One container per worktree (ADR-0007; ADR-0002 said per workspace):
+//! the manager ensures a long-lived `sleep infinity` container with the
+//! repo root bind-mounted at [`crate::podman::CTR_WORKSPACE`]. Agents then
+//! run via `PodmanProvider` (`exec`/`shell`). Only communication is CLI
+//! argv — no SSH, no vsock, no key material.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

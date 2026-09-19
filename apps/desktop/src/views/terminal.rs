@@ -14,7 +14,7 @@ use workspace::ShellChannel;
 use workspace::WorkspaceProvider as _;
 use workspace::strip_ansi;
 
-use super::theme::muted_for;
+use super::theme::{empty_state, muted_for, truncate};
 use crate::app::DioneApp;
 
 /// Scrollback cap: oldest lines drop past this.
@@ -107,6 +107,9 @@ impl DioneApp {
             return;
         }
         let Some((slug, cwd)) = self.active_checkout() else {
+            // No checkout: still open the tab so the empty-state hint
+            // ("open a worktree") is visible instead of a dead click.
+            self.show_terminal = true;
             return;
         };
         if self.guest_ready(&slug) {
@@ -183,23 +186,24 @@ impl DioneApp {
     pub(crate) fn render_terminal(&self, cx: &mut Context<Self>) -> AnyElement {
         let dark = cx.theme().is_dark();
         let Some(term) = self.term.as_ref() else {
-            let msg = if self.term_pending {
-                "connecting to guest…"
-            } else {
-                "open a worktree (+ wt) to start a terminal"
-            };
-            return div()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .child(Label::new(msg).text_color(muted_for(dark)))
-                .into_any_element();
+            if self.term_pending {
+                return empty_state("…", "Connecting to guest", "container shell arriving", dark);
+            }
+            return empty_state(
+                ">_",
+                "No terminal yet",
+                "open a worktree (+ wt) to start a terminal",
+                dark,
+            );
         };
         let send = cx.listener(|this, _: &ClickEvent, window, cx| {
             this.send_terminal_input(window, cx);
         });
         let query = self.term_query.read(cx).value().to_string();
-        let shown: Vec<String> = filter_lines(term.lines.iter().cloned(), &query);
+        let shown: Vec<Label> = filter_lines(term.lines.iter().cloned(), &query)
+            .into_iter()
+            .map(|l| Label::new(truncate(&l, 240)).text_size(px(11.)))
+            .collect();
         let count = if query.is_empty() {
             format!("{}", term.lines.len())
         } else {

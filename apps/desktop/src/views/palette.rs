@@ -69,7 +69,7 @@ impl DioneApp {
         });
         for slug in &slugs {
             items.push(PaletteItem {
-                id: format!("go-{slug}"),
+                id: format!("go-wt-{slug}"),
                 label: format!("Go to ⑂ {slug}"),
                 hint: "go".into(),
                 action: PaletteAction::SelectWorktree(slug.clone()),
@@ -83,7 +83,7 @@ impl DioneApp {
                 .map(|s| s.title.clone())
                 .unwrap_or_else(|| "(gone)".into());
             items.push(PaletteItem {
-                id: format!("go-{sid}"),
+                id: format!("go-ses-{sid}"),
                 label: format!("Go to {title}"),
                 hint: "go".into(),
                 action: PaletteAction::SelectSession(sid),
@@ -268,12 +268,16 @@ impl DioneApp {
                     ),
             );
         }
-        let close_bg = cx.listener(|this, _: &ClickEvent, _, cx| {
+        let close_bg = cx.listener(|this, _: &ClickEvent, window, cx| {
             this.show_palette = false;
+            this.palette_input
+                .update(cx, |st, cx| st.set_value("", window, cx));
             cx.notify();
         });
-        let close_btn = cx.listener(|this, _: &ClickEvent, _, cx| {
+        let close_btn = cx.listener(|this, _: &ClickEvent, window, cx| {
             this.show_palette = false;
+            this.palette_input
+                .update(cx, |st, cx| st.set_value("", window, cx));
             cx.notify();
         });
         div()

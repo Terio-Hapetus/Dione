@@ -55,6 +55,10 @@ impl TaskSweeper for FleetSweeper {
         self.inner.note_success(task);
     }
 
+    fn note_heartbeat(&mut self, task: &TaskId) {
+        self.inner.note_heartbeat(task);
+    }
+
     fn sweep(&self) -> Vec<SweepAction> {
         self.inner
             .sweep()

@@ -11,20 +11,32 @@ use base::state::Store;
 use base::transcript::TaskId;
 use base::{MetricsLog, UsageSample};
 use workspace::{AgentEntry, Secrets, Task, TaskStatus, WorkspaceProvider, handoff_summary};
-use workspace::{ResolvedEnv, resolve_task_env};
+use workspace::{MemoryEntry, MemoryKind, ResolvedEnv, distill_entry, resolve_task_env};
 
 use super::agent::{AgentBackend, AgentEvent, AgentStatus, apply_agent_event};
+
+/// Outcome ordering for the retry budget (R2): a single queue keeps the
+/// backend event order so `Idle→Error` is not flattened into silence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutcomeHit {
+    Error,
+    Success,
+}
 
 /// Owns the backend and the workspace face for a single [`Task`].
 pub struct Supervisor {
     backend: Box<dyn AgentBackend>,
     ws: Box<dyn WorkspaceProvider>,
     task: Task,
-    /// Backend `Error` hits since the last inbox drain (M7a retry budget).
-    error_hits: Vec<TaskId>,
-    /// Backend good-terminal hits (`Idle`/`Done`) since the last drain
-    /// (fix-2 success reset, mirrors `error_hits`).
-    success_hits: Vec<TaskId>,
+    /// Ordered backend outcome hits since the last inbox drain (M7a retry
+    /// budget + fix-2 reset). `drain_errors`/`drain_successes` filter this
+    /// queue; `drain_outcomes` takes it whole, preserving event order.
+    outcome_hits: Vec<(TaskId, OutcomeHit)>,
+    /// Session currently feeding this task (R3): opencode transcripts live
+    /// under the session's own task id, so the `Blocked` handoff snapshot
+    /// reads through this binding when the supervisor's own id has no
+    /// transcript yet.
+    bound_session: Option<String>,
     /// Usage observations drained this session (M9c). Lives here — not in
     /// the frozen `Store` — and reads attribution from `task` below.
     metrics: MetricsLog,
@@ -39,8 +51,8 @@ impl Supervisor {
             backend,
             ws,
             task,
-            error_hits: Vec::new(),
-            success_hits: Vec::new(),
+            outcome_hits: Vec::new(),
+            bound_session: None,
             metrics: MetricsLog::new(),
             secrets: None,
         }
@@ -57,6 +69,14 @@ impl Supervisor {
     /// Usage drained so far (M9c control-room reads this).
     pub fn metrics(&self) -> &MetricsLog {
         &self.metrics
+    }
+
+    /// Distill this task into a memory candidate (M12b callsite): pure,
+    /// no LLM — text comes from the task summary or slug. The caller
+    /// (desktop `MemoryStore` drain, retry flow) chooses `kind` and records
+    /// the result; `None` means nothing worth remembering.
+    pub fn distill(&self, kind: MemoryKind, ts: u64) -> Option<MemoryEntry> {
+        distill_entry(&self.task, kind, ts)
     }
 
     /// Attach BYOK secrets (M9e): `registry` is the `agents.toml` snapshot,
@@ -100,10 +120,13 @@ impl Supervisor {
     }
 
     /// Record which opencode session feeds this task (M4c-2 wires the
-    /// runtime callsite; the default backend ignores it).
+    /// runtime callsite; the default backend ignores it). The binding is
+    /// also remembered locally so the `Blocked` handoff snapshot can read
+    /// the session's transcript namespace (R3).
     pub fn bind_session(&mut self, session_id: &str) {
         let id = self.task.id;
         self.backend.bind_session(id, session_id);
+        self.bound_session = Some(session_id.to_string());
     }
 
     /// Drain new backend events into the store. Idempotent: re-tick with
@@ -117,14 +140,24 @@ impl Supervisor {
         for ev in self.backend.collect(store) {
             match &ev {
                 AgentEvent::Status(id, AgentStatus::Error { .. }) => {
-                    self.error_hits.push(*id);
+                    self.outcome_hits.push((*id, OutcomeHit::Error));
                     if self.task.note_failure() == TaskStatus::Blocked
                         && self.task.summary.is_none()
                     {
-                        let id = self.task.id;
+                        // R3: supervisor-owned transcripts (Mock/Terminal)
+                        // live under the task id; opencode transcripts live
+                        // under the bound session's id. Prefer the former,
+                        // fall back to the latter.
+                        let own = self.task.id;
+                        let fallback: Option<Vec<_>> = self
+                            .bound_session
+                            .as_deref()
+                            .map(|sid| store.transcript_for_session(sid).to_vec());
                         self.task.summary = store
                             .transcripts
-                            .get(&id)
+                            .get(&own)
+                            .map(|v| v.as_slice())
+                            .or(fallback.as_deref())
                             .and_then(|msgs| handoff_summary(msgs, 3, 500));
                     }
                 }
@@ -135,7 +168,7 @@ impl Supervisor {
                     if self.task.status != TaskStatus::Blocked =>
                 {
                     self.task.note_success();
-                    self.success_hits.push(self.task.id);
+                    self.outcome_hits.push((self.task.id, OutcomeHit::Success));
                 }
                 _ => {}
             }
@@ -147,21 +180,50 @@ impl Supervisor {
         }
     }
 
-    /// Backend error hits since the last call; drains the buffer.
+    /// Backend error hits since the last call; drains the matching slice
+    /// of the ordered queue (R2).
     pub fn drain_errors(&mut self) -> Vec<TaskId> {
-        std::mem::take(&mut self.error_hits)
+        let mut out = Vec::new();
+        self.outcome_hits.retain(|(id, hit)| {
+            if *hit == OutcomeHit::Error {
+                out.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        out
     }
 
-    /// Backend success hits since the last call; drains the buffer.
+    /// Backend success hits since the last call; drains the matching slice
+    /// of the ordered queue (R2).
     pub fn drain_successes(&mut self) -> Vec<TaskId> {
-        std::mem::take(&mut self.success_hits)
+        let mut out = Vec::new();
+        self.outcome_hits.retain(|(id, hit)| {
+            if *hit == OutcomeHit::Success {
+                out.push(*id);
+                false
+            } else {
+                true
+            }
+        });
+        out
     }
 
-    /// Manual retry (M7b): budget restored, error buffer cleared.
+    /// Ordered outcome hits since the last call (R2): errors and successes
+    /// in backend event order. The inbox forwards this so `Idle→Error`
+    /// can never collapse into silence.
+    pub fn drain_outcomes(&mut self) -> Vec<(TaskId, bool)> {
+        std::mem::take(&mut self.outcome_hits)
+            .into_iter()
+            .map(|(id, hit)| (id, hit == OutcomeHit::Error))
+            .collect()
+    }
+
+    /// Manual retry (M7b): budget restored, outcome buffer cleared.
     pub fn retry_reset(&mut self) {
         self.task.retry_reset();
-        self.error_hits.clear();
-        self.success_hits.clear();
+        self.outcome_hits.clear();
     }
 
     pub fn workspace(&mut self) -> &mut dyn WorkspaceProvider {
@@ -200,6 +262,10 @@ impl base::runtime::fleet::SupervisedTask for Supervisor {
         Supervisor::drain_successes(self)
     }
 
+    fn drain_outcomes(&mut self) -> Vec<(TaskId, bool)> {
+        Supervisor::drain_outcomes(self)
+    }
+
     fn retry_reset(&mut self) {
         Supervisor::retry_reset(self)
     }
@@ -219,6 +285,9 @@ impl base::runtime::fleet::SupervisedTask for Supervisor {
 
     fn unbind_session(&mut self, session_id: &str) {
         self.backend.unbind_session(session_id);
+        if self.bound_session.as_deref() == Some(session_id) {
+            self.bound_session = None;
+        }
     }
 
     fn usage_samples(&self) -> Vec<UsageSample> {
@@ -620,6 +689,19 @@ mod tests {
     }
 
     #[test]
+    fn distill_delegates_to_task_summary() {
+        use workspace::MemoryKind;
+
+        let (sup, id) = supervisor_with_prompt("hello");
+        // No summary yet: falls back to the slug.
+        let e = sup.distill(MemoryKind::Note, 9).unwrap();
+        assert_eq!(e.task, id);
+        assert_eq!(e.slug, "feat-x");
+        assert_eq!(e.text, "feat-x");
+        assert_eq!(e.ts, 9);
+    }
+
+    #[test]
     fn seam_handoff_snapshot() {
         use base::runtime::fleet::{SupervisedTask, TaskHandoff};
 
@@ -663,6 +745,68 @@ mod tests {
         bsup.tick(&mut store);
         assert!(bsup.drain_successes().is_empty());
         assert_eq!(bsup.task().status, TaskStatus::Blocked);
+    }
+
+    #[test]
+    fn ordered_outcomes_keep_idle_then_error() {
+        use crate::agent::{AgentEvent, AgentStatus};
+        use base::runtime::fleet::SupervisedTask;
+
+        // R2: `Idle→Error` must not collapse into silence — the ordered
+        // drain keeps event order where split drains could not.
+        let task = Task::new("wt-ord", "mock");
+        let id = task.id;
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(id, AgentStatus::Idle));
+        backend.emit(AgentEvent::Status(
+            id,
+            AgentStatus::Error { msg: "boom".into() },
+        ));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        let mut store = Store::default();
+        sup.tick(&mut store);
+        assert_eq!(
+            SupervisedTask::drain_outcomes(&mut sup),
+            vec![(id, false), (id, true)]
+        );
+        // Queue drained: second call is empty.
+        assert!(SupervisedTask::drain_outcomes(&mut sup).is_empty());
+    }
+
+    #[test]
+    fn blocked_snapshot_reads_bound_session_transcript() {
+        use crate::agent::{AgentEvent, AgentStatus, OpencodeAdapter};
+        use base::transcript::{Role, UnifiedMessage};
+
+        // R3: opencode transcripts live under the session mirror id, not
+        // the supervisor id — the handoff snapshot must follow the binding.
+        let task = Task::new("wt-op", "opencode").with_failure_limit(1);
+        let sup_id = task.id;
+        let mut store = Store::default();
+        let sid_task = store.task_for_session("s9");
+        assert_ne!(sup_id, sid_task);
+        store.push_unified(UnifiedMessage {
+            id: "m1".into(),
+            task: sid_task,
+            role: Role::Agent,
+            text: "tried oauth".into(),
+            tool: None,
+            ts: 0,
+        });
+        let mut backend = MockAgent::new();
+        backend.emit(AgentEvent::Status(
+            sup_id,
+            AgentStatus::Error { msg: "x".into() },
+        ));
+        let mut sup = Supervisor::new(task, Box::new(backend), Box::new(MockWorkspace::new()));
+        // Bind first so the snapshot knows the session namespace; the
+        // Mock backend ignores the binding itself.
+        sup.bind_session("s9");
+        // Silence the unused-import lint when OpencodeAdapter is linked.
+        let _ = OpencodeAdapter::new;
+        sup.tick(&mut store);
+        assert_eq!(sup.task().status, TaskStatus::Blocked);
+        assert_eq!(sup.task().summary.as_deref(), Some("agent: tried oauth"));
     }
 
     #[test]

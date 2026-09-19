@@ -87,7 +87,11 @@ pub fn scan_jsonl_logs(dir: &Path, parse: fn(&str) -> Vec<LogUsage>) -> Vec<LogU
             let path = e.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.extension().is_some_and(|x| x == "jsonl") {
+            } else if path
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("jsonl"))
+            {
                 if files >= MAX_FILES {
                     return out;
                 }
@@ -328,9 +332,10 @@ not json at all
         let sub = root.join("proj").join("sess");
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(sub.join("a.jsonl"), CLAUDE_LOG).unwrap();
+        std::fs::write(sub.join("b.JSONL"), CLAUDE_LOG).unwrap();
         std::fs::write(root.join("notes.txt"), "not a log").unwrap();
         let got = scan_jsonl_logs(&root, parse_claude_jsonl);
-        assert_eq!(got.len(), 1);
+        assert_eq!(got.len(), 2);
         // Missing dir is empty, never an error.
         assert!(scan_jsonl_logs(&root.join("nope"), parse_claude_jsonl).is_empty());
         let _ = std::fs::remove_dir_all(&root);

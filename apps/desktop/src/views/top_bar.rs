@@ -30,7 +30,10 @@ impl DioneApp {
             }
         });
         let term_label = if self.show_terminal { "Chat" } else { "Term" };
-        let toggle_term = cx.listener(|this, _: &ClickEvent, _, _| this.toggle_terminal());
+        let toggle_term = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.toggle_terminal();
+            cx.notify();
+        });
         let open_palette = cx.listener(|this, _: &ClickEvent, _, cx| {
             this.show_palette = true;
             cx.notify();

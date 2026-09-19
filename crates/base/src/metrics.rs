@@ -16,6 +16,12 @@ pub const WINDOW_5H_SECS: u64 = 5 * 3600;
 pub const WINDOW_DAY_SECS: u64 = 24 * 3600;
 pub const WINDOW_WEEK_SECS: u64 = 7 * 24 * 3600;
 
+/// Max samples kept in-memory (U2): `collect_usage` runs on the 160ms UI
+/// loop, so an unbounded log would grow the per-tick clone forever.
+/// Oldest samples evict first (FIFO); windowed views (5h/day/week) are
+/// unaffected in practice.
+pub const METRICS_CAP: usize = 2048;
+
 /// One usage observation. `agent`/`model` are attribution dimensions
 /// (`Task::{agent_ref, model_override}` at record time); empty model means
 /// "unknown / session default".
@@ -111,6 +117,9 @@ impl MetricsLog {
 
     pub fn record(&mut self, s: UsageSample) {
         self.samples.push(s);
+        if self.samples.len() > METRICS_CAP {
+            self.samples.remove(0);
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -287,5 +296,18 @@ mod tests {
         let log = MetricsLog::new();
         assert_eq!(log.aggregate(0, None, |_| true), UsageTotals::default());
         assert!(log.by_agent(0, None).is_empty());
+    }
+
+    #[test]
+    fn record_caps_fifo() {
+        let mut log = MetricsLog::new();
+        let t = TaskId::new();
+        for n in 0..METRICS_CAP + 10 {
+            log.record(sample(t, "a", "m", n as u64, None));
+        }
+        assert_eq!(log.len(), METRICS_CAP);
+        // Oldest 10 evicted: first kept sample has ts == 10.
+        assert_eq!(log.samples()[0].ts, 10);
+        assert_eq!(log.samples()[METRICS_CAP - 1].ts, (METRICS_CAP + 9) as u64);
     }
 }

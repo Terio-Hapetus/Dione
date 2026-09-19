@@ -74,8 +74,13 @@ impl DioneApp {
             row = row.child(btn.on_click(on_click));
         }
 
+        let count_label = if roots.is_empty() && self.store.worktrees.is_empty() {
+            "0 chats — + wt to start".to_string()
+        } else {
+            format!("{} chats", self.store.sessions.len())
+        };
         row.child(
-            Label::new(format!("{} chats", self.store.sessions.len()))
+            Label::new(count_label)
                 .text_size(px(TEXT_SECONDARY))
                 .text_color(muted_for(dark)),
         )

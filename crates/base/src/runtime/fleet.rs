@@ -51,6 +51,20 @@ pub trait SupervisedTask: Send {
     fn drain_successes(&mut self) -> Vec<TaskId> {
         Vec::new()
     }
+    /// Ordered outcome hits (R2): `(id, is_error)` in backend event order.
+    /// Default folds the two legacy drains (errors then successes) so
+    /// existing backends compile untouched; `Supervisor` overrides with
+    /// true event order. The inbox prefers this over the split drains.
+    fn drain_outcomes(&mut self) -> Vec<(TaskId, bool)> {
+        let mut out = Vec::new();
+        for id in self.drain_errors() {
+            out.push((id, true));
+        }
+        for id in self.drain_successes() {
+            out.push((id, false));
+        }
+        out
+    }
     /// Manual retry (M7b): clear budget state so the task runs again.
     /// Default: no-op (stateless tasks). The inbox re-tracks afterwards.
     fn retry_reset(&mut self) {}
@@ -105,6 +119,10 @@ pub trait TaskSweeper: Send {
     /// Record a success (fix-2): resets the error streak. Default: no-op
     /// so existing sweepers compile untouched.
     fn note_task_success(&mut self, _task: &TaskId) {}
+    /// Liveness heartbeat (S1): the task ticked this round. Default: no-op.
+    /// `Dispatcher` refreshes `last_beat` here so healthy `Working` tasks
+    /// never trip the 120s stale `Reclaim`; deadline reclaim is unaffected.
+    fn note_heartbeat(&mut self, _task: &TaskId) {}
     /// Track with budget + deadline (fix-2). Default folds back to the
     /// budget-only hook so existing sweepers compile untouched.
     fn track_task_full(&mut self, task: TaskId, limit: u8, _max_runtime_secs: Option<u64>) {
@@ -202,25 +220,32 @@ impl FleetInbox {
     /// sweeps stay silent until a manual retry (M7b).
     /// Public so drivers/tests can drive the fleet without a server.
     pub fn poll_fleet(&self, store: &mut Store, tick: u64) {
-        let mut error_hits = Vec::new();
-        let mut success_hits = Vec::new();
+        let mut outcomes: Vec<(TaskId, bool)> = Vec::new();
+        let mut live: Vec<TaskId> = Vec::new();
         let mut slugs = BTreeMap::new();
         if let Ok(mut tasks) = self.tasks.lock() {
             drain_fleet(&mut tasks, store);
             for t in tasks.iter_mut() {
-                error_hits.extend(t.drain_errors());
-                success_hits.extend(t.drain_successes());
+                // R2: single ordered drain keeps error/success event order.
+                outcomes.extend(t.drain_outcomes());
+                live.push(t.task_id());
                 slugs.insert(t.task_id(), t.slug().unwrap_or("").to_string());
             }
         }
         if let Ok(mut sw) = self.sweeper.lock()
             && let Some(sw) = sw.as_mut()
         {
-            for id in &error_hits {
-                sw.note_task_error(id);
+            // S1: every drained task is alive — refresh its beat before the
+            // sweep so healthy `Working` tasks never trip stale `Reclaim`.
+            for id in &live {
+                sw.note_heartbeat(id);
             }
-            for id in &success_hits {
-                sw.note_task_success(id);
+            for (id, is_error) in &outcomes {
+                if *is_error {
+                    sw.note_task_error(id);
+                } else {
+                    sw.note_task_success(id);
+                }
             }
             if sweep_due(tick) {
                 let blocked = apply_sweep_with_slugs(store, &sw.sweep(), &slugs);
@@ -356,8 +381,12 @@ pub(crate) fn bind_new_session(
     }
 }
 
-/// Forget retired sessions: unbind every task, untrack their tasks.
+/// Forget retired sessions: unbind every task, untrack the owning tasks.
 /// Call before `retire_session` drops the `session_task` map.
+/// B2: the sweeper tracks supervisor task ids (via `bind_new_session`),
+/// not the session mirror's `session_task` id — so owners are resolved by
+/// scope (slug), not by the mirror map. Unbinding stays broadcast (adapters
+/// no-op on foreign sids); untracking is owner-only.
 pub(crate) fn release_sessions(
     fleet: &mut [Box<dyn SupervisedTask>],
     sweeper: &mut Option<Box<dyn TaskSweeper>>,
@@ -368,10 +397,19 @@ pub(crate) fn release_sessions(
         for t in fleet.iter_mut() {
             t.unbind_session(sid);
         }
-        if let Some(task) = store.session_task.get(sid)
-            && let Some(sw) = sweeper.as_mut()
-        {
-            sw.untrack_task(task);
+        let scope = store.scope_of(sid).to_string();
+        if scope.is_empty() {
+            continue;
+        }
+        let owners: Vec<TaskId> = fleet
+            .iter()
+            .filter(|t| t.slug().is_some_and(|sl| sl == scope))
+            .map(|t| t.task_id())
+            .collect();
+        if let Some(sw) = sweeper.as_mut() {
+            for id in &owners {
+                sw.untrack_task(id);
+            }
         }
     }
 }
@@ -599,6 +637,9 @@ mod tests {
     fn release_sessions_unbinds_and_untracks() {
         let mut store = Store::default();
         let task = store.task_for_session("s1");
+        // Production sets the scope map on session create; the sweeper
+        // tracks supervisor ids, so release resolves owners by scope (B2).
+        store.session_scope.insert("s1".into(), "wt-a".into());
         let log: Arc<Mutex<Vec<String>>> = Default::default();
         let mut fleet: Vec<Box<dyn SupervisedTask>> = vec![Box::new(Logged {
             id: task,
@@ -619,6 +660,33 @@ mod tests {
                 format!("untrack:{task}"),
                 "unbind:nope".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn release_untracks_supervisor_id_not_mirror_id() {
+        // B2 regression: the sweeper tracks supervisor ids; the mirror map
+        // holds a different id. Release must untrack the owner, not the
+        // mirror id.
+        let mut store = Store::default();
+        let mirror = store.task_for_session("s1");
+        store.session_scope.insert("s1".into(), "wt-a".into());
+        let owner = TaskId::new();
+        assert_ne!(owner, mirror);
+        let log: Arc<Mutex<Vec<String>>> = Default::default();
+        let mut fleet: Vec<Box<dyn SupervisedTask>> = vec![Box::new(Logged {
+            id: owner,
+            owned_slug: Some("wt-a".into()),
+            log: Arc::clone(&log),
+        })];
+        let mut sweeper: Option<Box<dyn TaskSweeper>> = Some(Box::new(LoggedSweeper {
+            log: Arc::clone(&log),
+        }));
+        release_sessions(&mut fleet, &mut sweeper, &store, &["s1".to_string()]);
+        let got = log.lock().unwrap().clone();
+        assert_eq!(
+            got,
+            vec!["unbind:s1".to_string(), format!("untrack:{owner}")]
         );
     }
 

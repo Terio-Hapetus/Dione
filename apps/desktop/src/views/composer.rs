@@ -17,6 +17,15 @@ use crate::app::DioneApp;
 impl DioneApp {
     /// Context bar for the pending review note / reply / range anchor.
     /// `None` when the composer is in plain chat mode.
+    /// True while the composer input is claimed by a review note/reply:
+    /// `Send`/`Send all` must stand down so note text can never mis-fire
+    /// as a chat prompt (Enter already routes to `submit_annotate`).
+    pub(crate) fn note_bar_active(&self) -> bool {
+        self.annotate_target.is_some()
+            || self.annotate_anchor.is_some()
+            || self.reply_target.is_some()
+    }
+
     pub(crate) fn render_note_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let annotating = self.annotate_target.clone();
         let anchoring = self.annotate_anchor.clone();
@@ -24,6 +33,8 @@ impl DioneApp {
         if annotating.is_none() && anchoring.is_none() && replying.is_none() {
             return None;
         }
+        // Anchor-only (first click of a range): nothing to attach yet.
+        let anchor_only = annotating.is_none() && replying.is_none();
         let text = if let Some(n) = replying {
             let loc = match n.end_line {
                 Some(e) if e > n.line => format!("{}-{}", n.line, e),
@@ -54,6 +65,8 @@ impl DioneApp {
             this.reply_target = None;
             cx.notify();
         });
+        // …show only × in that state so the bar can never imply a
+        // working Attach (`submit_annotate` would no-op).
         Some(
             div()
                 .flex()
@@ -73,12 +86,12 @@ impl DioneApp {
                     div()
                         .flex()
                         .gap_1()
-                        .child(
+                        .children((!anchor_only).then(|| {
                             Button::new("note-attach")
                                 .label("Attach ⏎")
                                 .xsmall()
-                                .on_click(attach),
-                        )
+                                .on_click(attach)
+                        }))
                         .child(
                             Button::new("note-cancel")
                                 .label("×")
@@ -91,6 +104,9 @@ impl DioneApp {
 
     pub(crate) fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.store.is_busy();
+        // While a note/reply claims the input, Send/Send-all stand down
+        // (Enter routes to `submit_annotate` in the same state).
+        let claimed = self.note_bar_active();
 
         let send = cx.listener(|this, _: &ClickEvent, window, cx| this.send_prompt(window, cx));
         let fanout = cx.listener(|this, _: &ClickEvent, window, cx| this.send_fan_out(window, cx));
@@ -124,18 +140,19 @@ impl DioneApp {
                             Button::new("send")
                                 .label("Send ⏎")
                                 .small()
-                                .disabled(self.store.active_session.is_none())
+                                .disabled(self.store.active_session.is_none() || claimed)
                                 .on_click(send)
                                 .into_any_element(),
                             Button::new("fanout")
                                 .label("Send all")
                                 .small()
                                 .disabled(
-                                    !self
-                                        .store
-                                        .worktrees
-                                        .values()
-                                        .any(|r| r.session_id.is_some()),
+                                    claimed
+                                        || !self
+                                            .store
+                                            .worktrees
+                                            .values()
+                                            .any(|r| r.session_id.is_some()),
                                 )
                                 .on_click(fanout)
                                 .into_any_element(),
